@@ -25,6 +25,12 @@ export default defineConfig(({ mode, command }) => {
       // Enable basic SSL in development if certs exist
       isDev && httpsConfig && basicSsl()
     ].filter(Boolean),
+    build: {
+      outDir: 'dist',
+      assetsDir: 'assets',
+      emptyOutDir: true,
+      sourcemap: true
+    },
     // Base URL for production - adjust this to your Vercel project URL
     base: process.env.NODE_ENV === 'production' ? '/' : '/',
     server: {

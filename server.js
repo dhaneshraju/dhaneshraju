@@ -24,15 +24,32 @@ const __dirname = path.dirname(__filename);
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// CORS middleware - allow all origins in production, restrict in development
+// Serve static files from the Vite build directory in production
+if (process.env.NODE_ENV === 'production') {
+  const __dirname = path.dirname(fileURLToPath(import.meta.url));
+  app.use(express.static(path.join(__dirname, 'dist')));
+  
+  // Handle SPA fallback - return the main index.html for all routes
+  app.get('*', (req, res) => {
+    res.sendFile(path.join(__dirname, 'dist', 'index.html'));
+  });
+}
+
+// CORS configuration
 const corsOptions = process.env.NODE_ENV === 'production' 
   ? {
       origin: [
         'https://your-vercel-app-url.vercel.app',
-        // Add any other production domains here
+        'https://*.vercel.app',
+        'http://localhost:3000',
+        'http://localhost:3001',
+        'http://localhost:5173',
+        'https://localhost:3000',
+        'https://localhost:3001',
+        'https://localhost:5173'
       ],
       credentials: true,
-      methods: ['GET', 'POST', 'OPTIONS'],
+      methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
       allowedHeaders: ['Content-Type', 'Authorization']
     }
   : {
@@ -47,7 +64,7 @@ const corsOptions = process.env.NODE_ENV === 'production'
         'https://localhost:5173',
       ],
       credentials: true,
-      methods: ['GET', 'POST', 'OPTIONS'],
+      methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
       allowedHeaders: ['Content-Type', 'Authorization']
     };
 
