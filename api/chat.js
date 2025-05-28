@@ -55,28 +55,19 @@ async function initializeServices() {
       // Initialize Pinecone for serverless environment
       console.log('Initializing Pinecone serverless...');
       
-      // Get Pinecone endpoint from environment variable
-      const pineconeEndpoint = process.env.PINECONE_ENDPOINT;
-      if (!pineconeEndpoint) {
-        throw new Error('PINECONE_ENDPOINT environment variable is required');
-      }
-      
       // Log the configuration (without the full endpoint for security)
       console.log('Pinecone configuration:', {
-        hasEndpoint: !!pineconeEndpoint,
         hasApiKey: !!process.env.PINECONE_API_KEY,
         index: process.env.PINECONE_INDEX
       });
       
       // Initialize Pinecone with the latest serverless client
-      const { Pinecone } = await import('@pinecone-database/pinecone');
-      
       pinecone = new Pinecone({
         apiKey: process.env.PINECONE_API_KEY,
-        environment: 'gcp-starter' // This is required but not used with serverless
+        environment: 'gcp-starter' // This is required for serverless
       });
       
-      console.log('Pinecone client initialized with serverless configuration');
+      console.log('Pinecone client initialized');
       
       const indexName = process.env.PINECONE_INDEX;
       if (!indexName) {
@@ -87,10 +78,10 @@ async function initializeServices() {
       
       // Test the connection
       try {
-        // Create the index reference
-        const index = pinecone.Index(indexName);
+        // Get the index reference
+        const index = pinecone.index(indexName);
         
-        // Test the connection
+        // Test the connection using describeIndexStats
         console.log('Testing Pinecone connection...');
         await index.describeIndexStats();
         console.log('Successfully connected to Pinecone index');
@@ -290,7 +281,7 @@ async function queryPinecone(query, topK = 3) {
       console.log('Creating Pinecone index reference for:', pineconeIndex);
       
       // Get the index reference
-      const index = pinecone.Index(pineconeIndex);
+      const index = pinecone.index(pineconeIndex);
       
       console.log('Generating embedding for query...');
       const queryEmbedding = await getEmbedding(query);
