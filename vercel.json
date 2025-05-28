@@ -31,6 +31,10 @@
       "dest": "/$1"
     },
     {
+      "src": "/test-api.html",
+      "dest": "/test-api.html"
+    },
+    {
       "src": "^/(.*)",
       "dest": "/index.html"
     }
