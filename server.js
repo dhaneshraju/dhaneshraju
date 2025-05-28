@@ -24,6 +24,20 @@ const __dirname = path.dirname(__filename);
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
+app.post('/api/chat', async (req, res) => {
+  try {
+    const { message } = req.body;
+
+    // Example logic (replace this with your actual chat handler)
+    const response = `Echo: ${message}`;
+
+    res.status(200).json({ response });
+  } catch (err) {
+    console.error('Error in /api/chat:', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
 // Serve static files from the Vite build directory in production
 if (process.env.NODE_ENV === 'production') {
   const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -525,11 +539,11 @@ function startHttpServer(port) {
   });
 
   // Handle port in use error by trying the next port
-  server.on('error', (error) => {
+  ('error', (error) => {
     if (error.code === 'EADDRINUSE') {
       const nextPort = parseInt(port) + 1;
       console.warn(`Port ${port} is in use, trying port ${nextPort}...`);
-      
+      server.on
       // Try to start server on alternative port
       const altServer = app.listen(nextPort, HOST, () => {
         console.log(`Server is running on http://${HOST}:${nextPort}`);
