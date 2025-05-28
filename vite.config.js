@@ -30,6 +30,10 @@ export default defineConfig(({ mode, command }) => {
       assetsDir: 'assets',
       emptyOutDir: true,
       sourcemap: true,
+      write: true,
+      copyPublicDir: true,
+      minify: 'terser',
+      brotliSize: true,
       rollupOptions: {
         output: {
           assetFileNames: 'assets/[name]-[hash][extname]',

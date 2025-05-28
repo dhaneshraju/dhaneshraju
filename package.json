@@ -6,11 +6,11 @@
   "scripts": {
     "dev": "vite",
     "dev:https": "vite --host --open",
-    "build": "vite build && npm run vercel-build",
+    "build": "vite build",
     "preview": "vite preview",
     "start": "node server.js",
     "server": "nodemon server.js",
-    "vercel-build": "echo 'Vercel build completed'",
+    "vercel-build": "node vercel-build.js",
     "lint": "eslint ."
   },
   "dependencies": {

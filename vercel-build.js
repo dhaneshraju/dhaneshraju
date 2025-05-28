@@ -31,6 +31,9 @@ const runCommand = (command, description) => {
 
 // Main build process
 const build = async () => {
+  console.log('Current working directory:', process.cwd());
+  console.log('Directory contents:', fs.readdirSync('.'));
+  
   // Install dependencies
   if (!runCommand('npm ci --prefer-offline', 'Installing dependencies')) {
     console.log('Falling back to npm install...');
@@ -40,15 +43,23 @@ const build = async () => {
   }
 
   // Build the frontend
+  console.log('Running build script...');
   if (!runCommand('npm run build', 'Building frontend')) {
     throw new Error('Frontend build failed');
   }
 
   // Verify build output
-  const distPath = path.join(__dirname, 'dist');
+  const distPath = path.join(process.cwd(), 'dist');
+  console.log('Looking for dist directory at:', distPath);
+  
   if (!fs.existsSync(distPath)) {
+    console.error('Build output not found. Current directory contents:');
+    console.log(fs.readdirSync('.'));
     throw new Error(`Build output directory not found at ${distPath}`);
   }
+  
+  console.log('Build output found. Contents of dist directory:');
+  console.log(fs.readdirSync(distPath));
 
   console.log('\n=== Build Output ===');
   const listFiles = (dir, prefix = '') => {
