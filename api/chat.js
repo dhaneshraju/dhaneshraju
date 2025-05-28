@@ -68,14 +68,52 @@ async function initializeServices() {
         index: process.env.PINECONE_INDEX
       });
       
-      // Initialize Pinecone with API key and a dummy environment
-      // The actual endpoint will be provided when creating the index
+      // Initialize Pinecone with custom fetch and configuration
+      const fetchWithRetry = async (url, options = {}) => {
+        const maxRetries = 3;
+        let lastError;
+        
+        for (let i = 0; i < maxRetries; i++) {
+          try {
+            const response = await fetch(url, {
+              ...options,
+              headers: {
+                'Content-Type': 'application/json',
+                'Api-Key': process.env.PINECONE_API_KEY,
+                ...(options.headers || {})
+              }
+            });
+            
+            if (!response.ok) {
+              const error = new Error(`HTTP error! status: ${response.status}`);
+              error.status = response.status;
+              throw error;
+            }
+            
+            return response;
+          } catch (error) {
+            lastError = error;
+            console.warn(`Attempt ${i + 1} failed:`, error.message);
+            if (i < maxRetries - 1) {
+              // Exponential backoff
+              const delay = Math.pow(2, i) * 1000;
+              console.log(`Retrying in ${delay}ms...`);
+              await new Promise(resolve => setTimeout(resolve, delay));
+            }
+          }
+        }
+        
+        throw lastError || new Error('Failed to fetch after multiple attempts');
+      };
+      
+      // Initialize Pinecone with custom fetch and configuration
       pinecone = new Pinecone({
         apiKey: process.env.PINECONE_API_KEY,
-        environment: 'serverless' // Dummy value, not used with custom endpoint
+        environment: 'serverless', // Dummy value
+        fetch: fetchWithRetry
       });
       
-      console.log('Pinecone client initialized with serverless configuration');
+      console.log('Pinecone client initialized with custom fetch implementation');
       
       // For serverless, we need to create a custom index configuration
       const indexName = process.env.PINECONE_INDEX;
@@ -298,18 +336,49 @@ async function queryPinecone(query, topK = 3) {
     console.log(`Querying Pinecone serverless index: ${pineconeIndex}`);
     
     try {
-      // Get index with the serverless endpoint from environment
       if (!process.env.PINECONE_ENDPOINT) {
         throw new Error('PINECONE_ENDPOINT environment variable is required');
       }
       
-      console.log('Creating Pinecone index reference with endpoint:', {
-        index: pineconeIndex,
-        endpoint: process.env.PINECONE_ENDPOINT.substring(0, 30) + '...' // Show partial endpoint
+      // Parse the endpoint to get the environment and index name
+      const endpointUrl = new URL(process.env.PINECONE_ENDPOINT);
+      const hostParts = endpointUrl.hostname.split('.');
+      const environment = hostParts[2]; // e.g., 'aped-4627-b74a'
+      const indexName = hostParts[0];    // e.g., 'gleaming-cypress-0dwhbk1'
+      
+      console.log('Creating Pinecone index reference:', {
+        environment,
+        indexName: pineconeIndex,
+        endpoint: `${endpointUrl.protocol}//${endpointUrl.host}`,
+        hostname: endpointUrl.hostname
       });
       
+      // Create index with serverless configuration
       const index = pinecone.Index(pineconeIndex, {
-        host: process.env.PINECONE_ENDPOINT
+        host: endpointUrl.hostname,
+        apiKey: process.env.PINECONE_API_KEY,
+        fetch: (url, options) => {
+          // Ensure the URL is correct for serverless
+          const serverlessUrl = new URL(url);
+          if (!serverlessUrl.hostname.endsWith('.pinecone.io')) {
+            serverlessUrl.hostname = endpointUrl.hostname;
+          }
+          
+          console.log('Pinecone request:', {
+            method: options?.method || 'GET',
+            url: serverlessUrl.toString(),
+            headers: options?.headers ? Object.keys(options.headers) : []
+          });
+          
+          return fetch(serverlessUrl.toString(), {
+            ...options,
+            headers: {
+              'Content-Type': 'application/json',
+              'Api-Key': process.env.PINECONE_API_KEY,
+              ...(options?.headers || {})
+            }
+          });
+        }
       });
       
       console.log('Pinecone index reference created successfully');
