@@ -1,8 +1,6 @@
-import { defineConfig, loadEnv } from 'vite';
+import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
-import fs from 'fs';
 import { nodePolyfills } from 'vite-plugin-node-polyfills';
-import basicSsl from '@vitejs/plugin-basic-ssl';
 import { resolve } from 'path';
 
 // https://vitejs.dev/config/
@@ -13,21 +11,11 @@ export default defineConfig(({ mode, command }) => {
   // Check if we're in development mode
   const isDev = command === 'serve';
   
-  // HTTPS configuration - only for local development
-  const httpsConfig = isDev && fs.existsSync('.cert/key.pem') && fs.existsSync('.cert/cert.pem')
-    ? {
-        key: fs.readFileSync('.cert/key.pem'),
-        cert: fs.readFileSync('.cert/cert.pem'),
-      }
-    : false;
-
   return {
     plugins: [
       react(),
-      nodePolyfills(),
-      // Only enable SSL in development
-      process.env.NODE_ENV !== 'production' && basicSsl()
-    ].filter(Boolean),
+      nodePolyfills()
+    ],
     build: {
       outDir: 'dist',
       assetsDir: 'assets',
@@ -49,10 +37,8 @@ export default defineConfig(({ mode, command }) => {
     base: '/',
     server: {
       port: 3000,
-      open: true,
-      https: httpsConfig,
+      host: true,
       strictPort: true,
-      host: true, // Listen on all network interfaces
       proxy: isDev ? {
         // Only configure proxy in development
         '/api': {
