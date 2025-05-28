@@ -29,12 +29,18 @@ export default defineConfig(({ mode, command }) => {
       outDir: 'dist',
       assetsDir: 'assets',
       emptyOutDir: true,
-      sourcemap: true
+      sourcemap: true,
+      rollupOptions: {
+        output: {
+          assetFileNames: 'assets/[name]-[hash][extname]',
+          chunkFileNames: 'assets/[name]-[hash].js',
+          entryFileNames: 'assets/[name]-[hash].js'
+        }
+      }
     },
-    // Base URL for production - adjust this to your Vercel project URL
-    base: process.env.NODE_ENV === 'production' ? '/' : '/',
+    base: '/',
     server: {
-      port: 3001,
+      port: 3000,
       open: true,
       https: httpsConfig,
       strictPort: true,

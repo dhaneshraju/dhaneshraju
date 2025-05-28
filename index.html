@@ -3,23 +3,34 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+    <meta name="theme-color" content="#000000" />
     
     <!-- Favicon -->
-    <link rel="apple-touch-icon" sizes="180x180" href="/icons/apple-touch-icon.png">
-    <link rel="icon" type="image/png" sizes="32x32" href="/icons/favicon-32x32.png">
-    <link rel="icon" type="image/png" sizes="16x16" href="/icons/favicon-16x16.png">
-    <link rel="manifest" href="/icons/site.webmanifest">
-    <link rel="shortcut icon" href="/icons/favicon.ico">
-    
-    <!-- Theme Color -->
-    <meta name="theme-color" content="#000000">
+    <link rel="apple-touch-icon" sizes="180x180" href="/icons/apple-touch-icon.png" />
+    <link rel="icon" type="image/png" sizes="32x32" href="/icons/favicon-32x32.png" />
+    <link rel="icon" type="image/png" sizes="16x16" href="/icons/favicon-16x16.png" />
+    <link rel="manifest" href="/icons/site.webmanifest" />
+    <link rel="shortcut icon" href="/icons/favicon.ico" />
     
     <!-- PWA -->
-    <link rel="manifest" href="/icons/site.webmanifest">
+    <link rel="manifest" href="/icons/site.webmanifest" />
+    
+    <!-- Preload critical resources -->
+    <link rel="preload" as="style" href="/assets/index.css" />
+    <link rel="preload" as="script" href="/src/main.jsx" />
+    
+    <!-- Preconnect to external domains -->
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    
     <title>NeuroForge</title>
+    
+    <!-- Load styles -->
+    <link rel="stylesheet" href="/assets/index.css" />
   </head>
   <body>
     <div id="root"></div>
-    <script type="module" src="/src/main.jsx"></script>
+    <script type="module" crossorigin src="/src/main.jsx"></script>
   </body>
 </html>

@@ -27,11 +27,27 @@ app.use(express.urlencoded({ extended: true }));
 // Serve static files from the Vite build directory in production
 if (process.env.NODE_ENV === 'production') {
   const __dirname = path.dirname(fileURLToPath(import.meta.url));
-  app.use(express.static(path.join(__dirname, 'dist')));
+  
+  // Serve static files with proper MIME types
+  app.use(express.static(path.join(__dirname, 'dist'), {
+    setHeaders: (res, path) => {
+      if (path.endsWith('.css')) {
+        res.setHeader('Content-Type', 'text/css');
+      } else if (path.endsWith('.js')) {
+        res.setHeader('Content-Type', 'application/javascript');
+      } else if (path.endsWith('.json')) {
+        res.setHeader('Content-Type', 'application/json');
+      }
+    }
+  }));
   
   // Handle SPA fallback - return the main index.html for all routes
   app.get('*', (req, res) => {
-    res.sendFile(path.join(__dirname, 'dist', 'index.html'));
+    res.sendFile(path.join(__dirname, 'dist', 'index.html'), {
+      headers: {
+        'Content-Type': 'text/html; charset=UTF-8'
+      }
+    });
   });
 }
 
@@ -400,29 +416,73 @@ if (isDev) {
       cert: fs.readFileSync(path.join(__dirname, '.cert/cert.pem')),
     };
 
+    const PORT = process.env.PORT || 3000;
+    const HOST = '0.0.0.0';
+
     // Create HTTPS server
     const server = https.createServer(sslOptions, app);
-    
-    // Start HTTPS server
-    server.listen(port, '0.0.0.0', () => {
-      console.log(`Server running at https://localhost:${port}`);
-      console.log(`API available at https://localhost:${port}/api/chat`);
+
+    // Start the server
+    server.listen(PORT, HOST, () => {
+      console.log(`Server running at https://localhost:${PORT}`);
+      console.log(`API available at https://localhost:${PORT}/api/chat`);
       console.log('Note: Using self-signed certificate. You may need to accept the security exception in your browser.');
-      console.log(`Listening on all network interfaces (0.0.0.0:${port} and [::]:${port})`);
+      console.log(`Listening on all network interfaces (0.0.0.0:${PORT} and [::]:${PORT})`);
+    });
+
+    // Handle port in use error
+    server.on('error', (error) => {
+      if (error.code === 'EADDRINUSE') {
+        const altPort = parseInt(PORT) + 1;
+        console.warn(`Port ${PORT} is in use, trying port ${altPort}...`);
+        
+        // Try to start server on alternative port
+        const altServer = https.createServer(sslOptions, app).listen(altPort, HOST, () => {
+          console.log(`Server is running on https://${HOST}:${altPort}`);
+          console.log(`API available at https://${HOST}:${altPort}/api/chat`);
+          console.log('Note: Using self-signed certificate. You may need to accept the security exception in your browser.');
+          console.log(`Listening on all network interfaces (${HOST}:${altPort} and [::]:${altPort})`);
+        });
+        
+        // Handle errors on the alternative server
+        altServer.on('error', (altError) => {
+          console.error(`Failed to start server on port ${altPort}:`, altError);
+          process.exit(1);
+        });
+      } else {
+        console.error('Server error:', error);
+        process.exit(1);
+      }
     });
   } catch (error) {
     console.warn('Could not start HTTPS server. Falling back to HTTP. Error:', error.message);
-    // Fall back to HTTP if HTTPS setup fails
-    app.listen(port, '0.0.0.0', () => {
-      console.log(`Server running at http://localhost:${port}`);
-      console.log(`API available at http://localhost:${port}/api/chat`);
-      console.log(`Listening on all network interfaces (0.0.0.0:${port} and [::]:${port})`);
-    });
+    startHttpServer(process.env.PORT || 3000);
   }
 } else {
   // In production, use HTTP (Vercel will handle HTTPS)
-  app.listen(port, '0.0.0.0', () => {
-    console.log(`Server running on port ${port}`);
+  startHttpServer(process.env.PORT || 3000);
+}
+
+// Function to start HTTP server with port fallback
+function startHttpServer(port) {
+  const HOST = '0.0.0.0';
+  
+  const server = app.listen(port, HOST, () => {
+    console.log(`Server running at http://localhost:${port}`);
+    console.log(`API available at http://localhost:${port}/api/chat`);
+    console.log(`Listening on all network interfaces (${HOST}:${port} and [::]:${port})`);
+  });
+
+  // Handle port in use error for HTTP server
+  server.on('error', (error) => {
+    if (error.code === 'EADDRINUSE') {
+      const altPort = parseInt(port) + 1;
+      console.warn(`Port ${port} is in use, trying port ${altPort}...`);
+      startHttpServer(altPort);
+    } else {
+      console.error('HTTP server error:', error);
+      process.exit(1);
+    }
   });
 }
 
