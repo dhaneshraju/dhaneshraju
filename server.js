@@ -77,6 +77,8 @@ const groq = new Groq({
 // Initialize Pinecone
 const pinecone = new Pinecone({
   apiKey: process.env.VITE_PINECONE_API_KEY,
+  environment: process.env.VITE_PINECONE_ENVIRONMENT || 'us-west1-gcp',
+  projectId: process.env.VITE_PINECONE_PROJECT_ID
 });
 
 // Initialize Hugging Face for embeddings

@@ -27,12 +27,20 @@ function ZoomTracker({ onZoomChange }) {
 }
 
 // 🧠 Neural Network Component
-function NeuralNetwork({ speaking, volume }) {
+function NeuralNetwork({ speaking, volume, visible = true }) {
   const neuronsRef = useRef();
   const connectionsRef = useRef();
   const originalPositions = useRef(null);
   const [activeLayer, setActiveLayer] = useState(-1);
   const animationTimeRef = useRef(0);
+  const groupRef = useRef();
+  
+  // Update visibility using opacity
+  useEffect(() => {
+    if (groupRef.current) {
+      groupRef.current.visible = visible;
+    }
+  }, [visible]);
 
   const layerColors = {
     0: "#00ffff",
@@ -128,7 +136,7 @@ function NeuralNetwork({ speaking, volume }) {
   }, [speaking]);
 
   return (
-    <group>
+    <group ref={groupRef}>
       {[0, 1, 2].map(layer => (
         <points key={`layer-${layer}`}>
           <bufferGeometry>
@@ -230,8 +238,19 @@ function MicrophoneListener({ onVolumeChange, onSpeakingChange }) {
 function SophonCore({ volume, speaking }) {
   const meshRef = useRef();
   const edgesRef = useRef();
+  const { camera } = useThree();
+  const [isClose, setIsClose] = useState(false);
+  const lastUpdate = useRef(0);
 
   useFrame(({ clock }) => {
+    // Update visibility based on camera distance (throttled)
+    const now = Date.now();
+    if (camera && now - lastUpdate.current > 100) {
+      const distance = camera.position.length();
+      setIsClose(distance < 500);
+      lastUpdate.current = now;
+    }
+
     if (meshRef.current) {
       const scale = 1 + (speaking ? volume * 0.2 : 0);
       meshRef.current.scale.setScalar(scale);
@@ -250,24 +269,30 @@ function SophonCore({ volume, speaking }) {
 
   return (
     <group>
+      {/* Skull (opaque outer shell) */}
       <mesh ref={meshRef}>
-        <icosahedronGeometry args={[50, 0]} />
+        <icosahedronGeometry args={[60, 0]} />
         <meshPhysicalMaterial
-          color="#1e293b"
-          metalness={0.9}
-          roughness={0.2}
+          color="#1a1f2e"
+          metalness={0.8}
+          roughness={0.3}
           clearcoat={0.5}
+          clearcoatRoughness={0.3}
           transparent={false}
           opacity={1}
           transmission={0}
           ior={1.5}
           thickness={0}
-          emissive="#0f0f0f"
-          emissiveIntensity={0.3}
+          emissive="#0a0f1a"
+          emissiveIntensity={0.2}
         />
-        <Edges ref={edgesRef} scale={1.05} color="#00ffff" lineWidth={1} />
+        <Edges ref={edgesRef} scale={1.02} color="#00ffff" lineWidth={1.5} />
       </mesh>
-      <NeuralNetwork speaking={speaking} volume={volume} />
+      
+      {/* Brain (neural network) - Only visible when zoomed in */}
+      <group scale={0.8} position={[0, 0, 0]}>
+        <NeuralNetwork speaking={speaking} volume={volume} visible={isClose} />
+      </group>
     </group>
   );
 }
