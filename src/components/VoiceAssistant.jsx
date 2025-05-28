@@ -319,62 +319,48 @@ const VoiceAssistant = ({ isOpen, onClose, inputMode, onInputModeChange, onAISpe
     setMessages(prev => [...prev, userMessage]);
     setIsProcessing(true);
     
-    try {
-      // Prepare the conversation history for the API
-      // Start with a fresh conversation with system message
-      const conversation = [
-        { 
-          role: 'system', 
-          content: `You are Dhanesh Raju. You are not an AI assistant - you are Dhanesh. 
-          
-          When responding:
-          - Always speak in the first person as Dhanesh (use "I", "me", "my")
-          - You are a highly skilled professional with expertise in AI, machine learning, and software development
-          - You have a Master's degree in Artificial Intelligence with Distinction from the University of Essex
-          - You are passionate about creating intelligent systems and solving complex problems
-          - Keep responses professional, concise, and friendly
-          
-          IMPORTANT: For every fact or skill you mention, you MUST include a source in this format:
-          [source:Title:URL]
-          
-          Example responses:
-          - "I have experience in AI and machine learning [source:My Portfolio:https://dhaneshraju.com]"
-          - "I hold a Master's degree in AI from the University of Essex [source:My LinkedIn:https://linkedin.com/in/dhanesh]"
-          - "I'm particularly proud of my work on [Project Name] [source:GitHub:https://github.com/yourusername]"
-          
-          Always include at least one source for each response. If you don't know the source, say "I don't have a source for that information."
-          `
-        }
-      ];
-      
-      // Add the latest user message
-      conversation.push({
+    // Prepare the conversation history for the API
+    const conversation = [
+      { 
+        role: 'system', 
+        content: `You are Dhanesh Raju. You are not an AI assistant - you are Dhanesh. 
+        
+        When responding:
+        - Always speak in the first person as Dhanesh (use "I", "me", "my")
+        - You are a highly skilled professional with expertise in AI, machine learning, and software development
+        - You have a Master's degree in Artificial Intelligence with Distinction from the University of Essex
+        - You are passionate about creating intelligent systems and solving complex problems
+        - Keep responses professional, concise, and friendly
+        
+        IMPORTANT: For every fact or skill you mention, you MUST include a source in this format:
+        [source:Title:URL]
+        
+        Example responses:
+        - "I have experience in AI and machine learning [source:My Portfolio:https://dhaneshraju.com]"
+        - "I hold a Master's degree in AI from the University of Essex [source:My LinkedIn:https://linkedin.com/in/dhanesh]"
+        - "I'm particularly proud of my work on [Project Name] [source:GitHub:https://github.com/yourusername]"
+        
+        Always include at least one source for each response. If you don't know the source, say "I don't have a source for that information."
+        `
+      },
+      {
         role: 'user',
         content: query
-      });
-      
-      console.log('Prepared conversation:', conversation);
-      
-      // In development, Vite will proxy /api to the backend server
-      // In production, the API is served from the same origin
+      }
+    ];
+    
+    try {
       const apiBase = '/api/chat';
       
-      // Prepare the request body with the required format for Groq API
+      // Format the conversation for the API
       const requestBody = {
         messages: conversation.map(msg => ({
           role: msg.role,
           content: msg.role === 'system' 
-            ? msg.content.replace(/\s+/g, ' ').trim() // Clean up whitespace in system message
+            ? msg.content.replace(/\s+/g, ' ').trim()
             : msg.content.toString().trim()
-        })).filter(msg => msg.content), // Remove any empty messages
-        // Add a flag to request sources
-        include_sources: true
+        })).filter(msg => msg.content)
       };
-      
-      console.log('Sending conversation:', JSON.stringify(conversation, null, 2));
-      console.log('Request body:', JSON.stringify(requestBody, null, 2));
-      
-      console.log('Sending request with body:', JSON.stringify(requestBody, null, 2));
       
       console.log('Sending request to API:', {
         url: apiBase,
@@ -382,191 +368,116 @@ const VoiceAssistant = ({ isOpen, onClose, inputMode, onInputModeChange, onAISpe
         body: requestBody
       });
       
-      let response;
-      let responseData;
+      // Make the API request
+      const response = await fetch(apiBase, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json'
+        },
+        body: JSON.stringify(requestBody),
+      });
       
-      try {
-        response = await fetch(apiBase, {
-          method: 'POST',
-          mode: 'cors',
-          credentials: 'include',  // Include cookies and HTTP authentication
-          headers: {
-            'Content-Type': 'application/json',
-            'Accept': 'application/json',
-            'X-Requested-With': 'XMLHttpRequest'  // Helps identify AJAX requests
-          },
-          body: JSON.stringify(requestBody),
-        });
-        
-        console.log('Received response:', {
-          status: response.status,
-          statusText: response.statusText,
-          ok: response.ok,
-          headers: Object.fromEntries([...response.headers.entries()])
-        });
-        
-        // Try to parse the response as JSON
-        const responseText = await response.text();
-        try {
-          responseData = responseText ? JSON.parse(responseText) : {};
-          console.log('Parsed response data:', responseData);
-        } catch (parseError) {
-          console.error('Failed to parse JSON response:', parseError);
-          console.error('Response text:', responseText);
-          throw new Error(`Invalid JSON response: ${responseText.substring(0, 200)}...`);
-        }
-        
-        if (!response.ok) {
-          throw new Error(responseData.message || 
-                        responseData.error || 
-                        `HTTP error! status: ${response.status}`);
-        }
-        
-        // Handle successful response
-        console.log('Full API response:', JSON.stringify(responseData, null, 2));
-        
-        const assistantMessage = responseData.choices?.[0]?.message?.content || 
-                               responseData.data?.choices?.[0]?.message?.content ||
-                               responseData.assistant ||
-                               "I'm sorry, I couldn't process that request.";
-        
-        console.log('Extracted assistant message:', assistantMessage);
-        
-        // Extract sources from the response
-        let sources = [];
-        let cleanMessage = assistantMessage;
-        
-        // Check for sources in different parts of the response
-        const possibleSourcePaths = [
-          responseData.sources,
-          responseData.data?.sources,
-          responseData.choices?.[0]?.sources,
-          responseData.choices?.[0]?.message?.sources,
-          responseData.context?.sources,
-          responseData.metadata?.sources
-        ];
-        
-        // Find the first non-empty source array
-        for (const possibleSource of possibleSourcePaths) {
-          if (Array.isArray(possibleSource) && possibleSource.length > 0) {
-            sources = possibleSource;
-            break;
-          }
-        }
-        
-        // Process sources to ensure they have the correct format
-        sources = sources.map(source => {
-          if (typeof source === 'string') {
-            // Try to parse string source
-            const match = source.match(/\[source:([^\]]+)\]/);
-            if (match) {
-              const parts = match[1].split(':');
-              if (parts.length >= 2) {
-                return {
-                  title: parts[0].trim(),
-                  url: parts.slice(1).join(':').trim()
-                };
-              }
-            }
-            return { title: source, url: '#' };
-          }
-          // Handle object sources (from Pinecone metadata)
-          return {
-            title: source.title || source.name || 'Source',
-            url: source.url || source.source || '#',
-            // Include any additional metadata
-            ...(source.metadata || {})
-          };
-        });
-        
-        // Clean up the message by removing any source markers
-        cleanMessage = cleanMessage.replace(/\[source:[^\]]+\]/g, '').trim();
-        
-        // Ensure sources is an array
-        if (!Array.isArray(sources)) {
-          sources = [];
-        }
-        
-        // Add assistant's response to the chat with sources
-        const newAssistantMessage = { 
-          role: 'assistant', 
-          content: cleanMessage,
-          sources: sources
-        };
-        
-        console.log('Assistant message with sources:', newAssistantMessage);
-        
-        setMessages(prev => [...prev, newAssistantMessage]);
-        
-        // Use speech synthesis to speak the response if we have a successful response
-        if (responseData.choices?.[0]?.message?.content) {
-          try {
-            const speechContent = responseData.choices[0].message.content;
-            
-            // Cancel any ongoing speech
-            window.speechSynthesis.cancel();
-            
-            // Create and speak the new utterance
-            const utterance = new SpeechSynthesisUtterance(speechContent);
-            
-            // Set a pleasant voice if available
-            const voices = window.speechSynthesis.getVoices();
-            const preferredVoice = voices.find(voice => 
-              voice.name.includes('Google') || 
-              voice.name.includes('Samantha') ||
-              voice.lang.startsWith('en')
-            );
-            
-            if (preferredVoice) {
-              utterance.voice = preferredVoice;
-              utterance.rate = 1.0;
-              utterance.pitch = 1.0;
-            } else if (voices.length > 0) {
-              // Use the first available voice if no preferred voice found
-              utterance.voice = voices[0];
-            }
-            
-            // Handle speech synthesis events
-            utterance.onstart = () => {
-              console.log('AI started speaking');
-              setIsAISpeaking(true);
-            };
-            
-            utterance.onend = () => {
-              console.log('AI finished speaking');
-              setIsAISpeaking(false);
-            };
-            
-            utterance.onerror = (event) => {
-              console.error('SpeechSynthesis error:', event);
-              setIsAISpeaking(false);
-            };
-            
-            console.log('Starting speech synthesis with voice:', utterance.voice?.name || 'default');
-            window.speechSynthesis.speak(utterance);
-            
-          } catch (speechError) {
-            console.error('Error in speech synthesis:', speechError);
-            setIsAISpeaking(false);
-          }
-        }
-      } catch (apiError) {
-        console.error('Error in API call:', apiError);
-        throw apiError; // Re-throw to be caught by the outer catch block
+      // Handle the response
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        console.error('API error:', errorData);
+        throw new Error(errorData.message || 'Failed to get response from server');
       }
       
-    } catch (err) {
-      console.error('Error processing query:', err);
-      setError('Failed to get a response. ' + (err.message || 'Please try again.'));
+      const responseData = await response.json();
+      console.log('API response:', responseData);
+      
+      // Extract the response and sources
+      const assistantMessage = responseData.response || 
+                             "I'm sorry, I couldn't process that request.";
+      
+      // Format sources from the response
+      const sources = Array.isArray(responseData.sources) 
+        ? responseData.sources.map(source => ({
+            title: source.source || 'Source',
+            url: source.url || '#',
+            text: source.text || '',
+            score: source.score
+          }))
+        : [];
+      
+      // Create the assistant message with sources
+      const newAssistantMessage = {
+        role: 'assistant',
+        content: assistantMessage,
+        sources: sources
+      };
+      
+      console.log('Assistant message with sources:', newAssistantMessage);
+      
+      // Add the assistant's response to the chat
+      setMessages(prev => [...prev, newAssistantMessage]);
+      
+      // Speak the response if speech synthesis is available
+      if (window.speechSynthesis) {
+        try {
+          const utterance = new SpeechSynthesisUtterance(assistantMessage);
+          const voices = window.speechSynthesis.getVoices();
+          const preferredVoice = voices.find(voice => 
+            voice.name.includes('Google') || 
+            voice.name.includes('Samantha') ||
+            voice.lang.startsWith('en')
+          );
+          
+          if (preferredVoice) {
+            utterance.voice = preferredVoice;
+            utterance.rate = 1.0;
+            utterance.pitch = 1.0;
+          } else if (voices.length > 0) {
+            // Use the first available voice if no preferred voice found
+            utterance.voice = voices[0];
+          }
+          
+          // Handle speech synthesis events
+          utterance.onstart = () => {
+            console.log('AI started speaking');
+            setIsAISpeaking(true);
+            if (onAISpeakingChange) {
+              onAISpeakingChange(true);
+            }
+          };
+          
+          utterance.onend = () => {
+            console.log('AI finished speaking');
+            setIsAISpeaking(false);
+            if (onAISpeakingChange) {
+              onAISpeakingChange(false);
+            }
+          };
+          
+          utterance.onerror = (event) => {
+            console.error('Speech synthesis error:', event);
+            setIsAISpeaking(false);
+            if (onAISpeakingChange) {
+              onAISpeakingChange(false);
+            }
+          };
+          
+          console.log('Starting speech synthesis with voice:', utterance.voice?.name || 'default');
+          window.speechSynthesis.speak(utterance);
+        } catch (speechError) {
+          console.error('Error in speech synthesis:', speechError);
+          // Don't fail the whole request if speech synthesis fails
+        }
+      }
+    } catch (error) {
+      console.error('Error processing query:', error);
+      setError('Failed to process your request. ' + (error.message || 'Please try again.'));
       
       // Add error message to chat
       setMessages(prev => [...prev, { 
         role: 'assistant', 
         content: "I'm having trouble connecting to the AI service. Please try again later." 
       }]);
-      setIsAISpeaking(false);
     } finally {
       setIsProcessing(false);
+      setIsAISpeaking(false);
     }
   };
 
