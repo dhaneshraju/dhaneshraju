@@ -2,15 +2,15 @@
   "version": 2,
   "builds": [
     {
+      "src": "server.js",
+      "use": "@vercel/node"
+    },
+    {
       "src": "package.json",
       "use": "@vercel/static-build",
       "config": {
         "distDir": "dist"
       }
-    },
-    {
-      "src": "server.js",
-      "use": "@vercel/node"
     }
   ],
   "routes": [
@@ -20,6 +20,12 @@
     },
     {
       "src": "/assets/(.*)",
+      "headers": {
+        "cache-control": "public, max-age=31536000, immutable"
+      }
+    },
+    {
+      "src": "/_next/static/(?:[^/]+/pages|chunks|runtime|css|media)/.+",
       "headers": {
         "cache-control": "public, max-age=31536000, immutable"
       }

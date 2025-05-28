@@ -25,31 +25,37 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
 // Serve static files from the Vite build directory in production
-if (process.env.NODE_ENV === 'production') {
-  const __dirname = path.dirname(fileURLToPath(import.meta.url));
-  
-  // Serve static files with proper MIME types
-  app.use(express.static(path.join(__dirname, 'dist'), {
-    setHeaders: (res, path) => {
-      if (path.endsWith('.css')) {
-        res.setHeader('Content-Type', 'text/css');
-      } else if (path.endsWith('.js')) {
-        res.setHeader('Content-Type', 'application/javascript');
-      } else if (path.endsWith('.json')) {
-        res.setHeader('Content-Type', 'application/json');
-      }
+
+// Serve static files with proper MIME types
+app.use(express.static(path.join(__dirname, 'dist'), {
+  setHeaders: (res, path) => {
+    if (path.endsWith('.css')) {
+      res.setHeader('Content-Type', 'text/css');
+    } else if (path.endsWith('.js')) {
+      res.setHeader('Content-Type', 'application/javascript');
+    } else if (path.endsWith('.json')) {
+      res.setHeader('Content-Type', 'application/json');
     }
-  }));
+  }
+}));
+
+// API routes should be defined before the catch-all route
+// Your existing API routes are already defined above
+
+// Handle SPA fallback - return the main index.html for all non-API routes
+app.get('*', (req, res) => {
+  // Don't serve HTML for API routes
+  if (req.path.startsWith('/api/')) {
+    return res.status(404).json({ error: 'Not found' });
+  }
   
-  // Handle SPA fallback - return the main index.html for all routes
-  app.get('*', (req, res) => {
-    res.sendFile(path.join(__dirname, 'dist', 'index.html'), {
-      headers: {
-        'Content-Type': 'text/html; charset=UTF-8'
-      }
-    });
+  // Serve index.html for all other routes
+  res.sendFile(path.join(__dirname, 'dist', 'index.html'), {
+    headers: {
+      'Content-Type': 'text/html; charset=UTF-8'
+    }
   });
-}
+});
 
 // CORS configuration
 const corsOptions = process.env.NODE_ENV === 'production' 
