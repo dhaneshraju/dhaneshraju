@@ -2,56 +2,97 @@ import { Pinecone } from '@pinecone-database/pinecone';
 import Groq from 'groq-sdk';
 import { HfInference } from '@huggingface/inference';
 
-// Initialize services with error handling
+// Initialize services with error handling and retries
 let groq;
 let pinecone;
 let hf;
 let servicesInitialized = false;
+let serviceInitializationError = null;
 
-// Function to initialize services
-function initializeServices() {
-  if (servicesInitialized) return;
+/**
+ * Initialize all required services with retry logic
+ */
+async function initializeServices() {
+  if (servicesInitialized) return true;
   
-  try {
-    console.log('Initializing services...');
-    
-    // Check for required environment variables
-    const requiredEnvVars = [
-      'GROQ_API_KEY',
-      'PINECONE_API_KEY',
-      'PINECONE_ENVIRONMENT',
-      'PINECONE_INDEX',
-      'HUGGINGFACE_API_KEY'
-    ];
-    
-    const missingVars = requiredEnvVars.filter(varName => !process.env[varName]);
-    if (missingVars.length > 0) {
-      throw new Error(`Missing required environment variables: ${missingVars.join(', ')}`);
+  const maxRetries = 3;
+  let retryCount = 0;
+  
+  while (retryCount < maxRetries) {
+    try {
+      console.log(`Initializing services (Attempt ${retryCount + 1}/${maxRetries})...`);
+      
+      // Check for required environment variables
+      const requiredEnvVars = {
+        'GROQ_API_KEY': process.env.GROQ_API_KEY,
+        'PINECONE_API_KEY': process.env.PINECONE_API_KEY,
+        'PINECONE_ENVIRONMENT': process.env.PINECONE_ENVIRONMENT,
+        'PINECONE_INDEX': process.env.PINECONE_INDEX,
+        'HUGGINGFACE_API_KEY': process.env.HUGGINGFACE_API_KEY
+      };
+      
+      const missingVars = Object.entries(requiredEnvVars)
+        .filter(([_, value]) => !value)
+        .map(([key]) => key);
+      
+      if (missingVars.length > 0) {
+        throw new Error(`Missing required environment variables: ${missingVars.join(', ')}`);
+      }
+      
+      // Initialize Groq
+      groq = new Groq({
+        apiKey: process.env.GROQ_API_KEY,
+        timeout: 10000 // 10 second timeout
+      });
+      console.log('✅ Groq initialized successfully');
+
+      // Initialize Pinecone
+      pinecone = new Pinecone({
+        apiKey: process.env.PINECONE_API_KEY,
+        environment: process.env.PINECONE_ENVIRONMENT
+      });
+      
+      // Test Pinecone connection
+      await pinecone.listIndexes();
+      console.log('✅ Pinecone client initialized and connected');
+
+      // Initialize Hugging Face for embeddings
+      hf = new HfInference(process.env.HUGGINGFACE_API_KEY);
+      
+      // Test Hugging Face connection with a simple request
+      await hf.featureExtraction({
+        model: 'sentence-transformers/all-MiniLM-L6-v2',
+        inputs: 'test',
+        options: { wait_for_model: true }
+      });
+      console.log('✅ Hugging Face initialized and responsive');
+      
+      servicesInitialized = true;
+      serviceInitializationError = null;
+      return true;
+      
+    } catch (error) {
+      retryCount++;
+      serviceInitializationError = error;
+      
+      const waitTime = Math.pow(2, retryCount) * 1000; // Exponential backoff
+      console.error(`❌ Service initialization failed (Attempt ${retryCount}/${maxRetries}):`, {
+        error: error.message,
+        stack: error.stack,
+        retryIn: `${waitTime}ms`
+      });
+      
+      if (retryCount < maxRetries) {
+        console.log(`Retrying in ${waitTime}ms...`);
+        await new Promise(resolve => setTimeout(resolve, waitTime));
+      } else {
+        console.error('❌ Max retries reached. Service initialization failed.');
+        return false;
+      }
     }
-    
-    // Initialize Groq
-    groq = new Groq({
-      apiKey: process.env.GROQ_API_KEY
-    });
-    console.log('Groq initialized');
-
-    // Initialize Pinecone
-    pinecone = new Pinecone({
-      apiKey: process.env.PINECONE_API_KEY,
-      environment: process.env.PINECONE_ENVIRONMENT
-    });
-    console.log('Pinecone client initialized');
-
-    // Initialize Hugging Face for embeddings
-    hf = new HfInference(process.env.HUGGINGFACE_API_KEY);
-    console.log('Hugging Face initialized');
-    
-    servicesInitialized = true;
-    
-  } catch (error) {
-    console.error('Failed to initialize services:', error);
-    // Don't throw here, we'll handle it when services are actually used
   }
+  
+  return false;
 }
 
 // Helper function to mask sensitive information in logs
@@ -410,17 +451,57 @@ export default async function handler(req, res) {
   console.log('Headers:', maskSensitiveInfo(req.headers));
   
   // Log environment info
-  console.log('Environment:', {
+  const envInfo = {
     NODE_ENV: process.env.NODE_ENV,
     NODE_VERSION: process.version,
     PLATFORM: process.platform,
-    MEMORY_USAGE: process.memoryUsage()
-  });
+    MEMORY_USAGE: process.memoryUsage(),
+    // Don't log actual API keys, just check if they exist
+    HAS_GROQ_KEY: !!process.env.GROQ_API_KEY,
+    HAS_PINECONE_KEY: !!process.env.PINECONE_API_KEY,
+    HAS_HF_KEY: !!process.env.HUGGINGFACE_API_KEY,
+    PINECONE_ENV: process.env.PINECONE_ENVIRONMENT,
+    PINECONE_INDEX: process.env.PINECONE_INDEX
+  };
+  console.log('Environment:', envInfo);
 
   // Handle preflight requests
   if (req.method === 'OPTIONS') {
     console.log('Handling OPTIONS preflight request');
     return res.status(200).end();
+  }
+  
+  // Initialize services if not already done
+  if (!servicesInitialized) {
+    console.log('Services not initialized, initializing now...');
+    const initialized = await initializeServices();
+    if (!initialized) {
+      console.error('Failed to initialize services:', serviceInitializationError);
+      return res.status(503).json({
+        error: 'Service Unavailable',
+        message: 'Failed to initialize required services',
+        details: {
+          error: serviceInitializationError?.message || 'Unknown error',
+          serviceStatus: {
+            groq: !!groq,
+            pinecone: !!pinecone,
+            huggingface: !!hf,
+            lastError: serviceInitializationError?.message || null
+          },
+          environment: {
+            nodeEnv: process.env.NODE_ENV,
+            missingEnvVars: {
+              GROQ_API_KEY: !process.env.GROQ_API_KEY,
+              PINECONE_API_KEY: !process.env.PINECONE_API_KEY,
+              PINECONE_ENVIRONMENT: !process.env.PINECONE_ENVIRONMENT,
+              PINECONE_INDEX: !process.env.PINECONE_INDEX,
+              HUGGINGFACE_API_KEY: !process.env.HUGGINGFACE_API_KEY
+            }
+          }
+        },
+        timestamp: new Date().toISOString()
+      });
+    }
   }
 
   // Handle GET request
