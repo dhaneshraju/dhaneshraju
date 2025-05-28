@@ -15,7 +15,7 @@
   ],
   "routes": [
     {
-      "src": "/api/chat",
+      "src": "/api/(.*)",
       "dest": "/api/chat"
     },
     {
@@ -32,5 +32,8 @@
       "src": "^/(.*)$",
       "dest": "/index.html"
     }
+  ],
+  "rewrites": [
+    { "source": "/api/(.*)", "destination": "/api/chat" }
   ]
 }
