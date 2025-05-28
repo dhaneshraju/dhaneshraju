@@ -68,11 +68,14 @@ async function initializeServices() {
         index: process.env.PINECONE_INDEX
       });
       
-      // Initialize Pinecone with the API key only
-      // The endpoint will be provided when creating the index
+      // Initialize Pinecone with API key and a dummy environment
+      // The actual endpoint will be provided when creating the index
       pinecone = new Pinecone({
-        apiKey: process.env.PINECONE_API_KEY
+        apiKey: process.env.PINECONE_API_KEY,
+        environment: 'serverless' // Dummy value, not used with custom endpoint
       });
+      
+      console.log('Pinecone client initialized with serverless configuration');
       
       // For serverless, we need to create a custom index configuration
       const indexName = process.env.PINECONE_INDEX;
@@ -296,13 +299,20 @@ async function queryPinecone(query, topK = 3) {
     
     try {
       // Get index with the serverless endpoint from environment
+      if (!process.env.PINECONE_ENDPOINT) {
+        throw new Error('PINECONE_ENDPOINT environment variable is required');
+      }
+      
+      console.log('Creating Pinecone index reference with endpoint:', {
+        index: pineconeIndex,
+        endpoint: process.env.PINECONE_ENDPOINT.substring(0, 30) + '...' // Show partial endpoint
+      });
+      
       const index = pinecone.Index(pineconeIndex, {
         host: process.env.PINECONE_ENDPOINT
       });
       
-      if (!process.env.PINECONE_ENDPOINT) {
-        throw new Error('PINECONE_ENDPOINT environment variable is required');
-      }
+      console.log('Pinecone index reference created successfully');
       
       console.log('Successfully connected to Pinecone serverless index');
       
