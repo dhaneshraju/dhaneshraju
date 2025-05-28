@@ -35,16 +35,27 @@ const build = async () => {
   console.log('Directory contents:', fs.readdirSync('.'));
   
   // Install dependencies
-  if (!runCommand('npm ci --prefer-offline', 'Installing dependencies')) {
-    console.log('Falling back to npm install...');
-    if (!runCommand('npm install', 'Installing dependencies (fallback)')) {
-      throw new Error('Failed to install dependencies');
+  console.log('Installing production dependencies...');
+  if (!runCommand('npm install --production=false --prefer-offline', 'Installing all dependencies')) {
+    throw new Error('Failed to install dependencies');
+  }
+
+  // Install Vite and other build tools globally to make them available
+  console.log('Installing Vite globally...');
+  if (!runCommand('npm install -g vite', 'Installing Vite globally')) {
+    console.log('Falling back to local Vite installation...');
+    if (!runCommand('npm install --save-dev vite', 'Installing Vite locally')) {
+      throw new Error('Failed to install Vite');
     }
   }
 
   // Build the frontend
   console.log('Running build script...');
-  if (!runCommand('npm run build', 'Building frontend')) {
+  const buildCommand = fs.existsSync(path.join(process.cwd(), 'node_modules/.bin/vite')) 
+    ? 'npx vite build' 
+    : 'vite build';
+    
+  if (!runCommand(buildCommand, 'Building frontend')) {
     throw new Error('Frontend build failed');
   }
 

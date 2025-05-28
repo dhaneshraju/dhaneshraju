@@ -1,7 +1,9 @@
 import { defineConfig, loadEnv } from 'vite';
 import react from '@vitejs/plugin-react';
 import fs from 'fs';
+import { nodePolyfills } from 'vite-plugin-node-polyfills';
 import basicSsl from '@vitejs/plugin-basic-ssl';
+import { resolve } from 'path';
 
 // https://vitejs.dev/config/
 export default defineConfig(({ mode, command }) => {
@@ -22,19 +24,21 @@ export default defineConfig(({ mode, command }) => {
   return {
     plugins: [
       react(),
-      // Enable basic SSL in development if certs exist
-      isDev && httpsConfig && basicSsl()
+      nodePolyfills(),
+      // Only enable SSL in development
+      process.env.NODE_ENV !== 'production' && basicSsl()
     ].filter(Boolean),
     build: {
       outDir: 'dist',
       assetsDir: 'assets',
       emptyOutDir: true,
       sourcemap: true,
-      write: true,
-      copyPublicDir: true,
       minify: 'terser',
       brotliSize: true,
       rollupOptions: {
+        input: {
+          main: resolve(__dirname, 'index.html')
+        },
         output: {
           assetFileNames: 'assets/[name]-[hash][extname]',
           chunkFileNames: 'assets/[name]-[hash].js',
