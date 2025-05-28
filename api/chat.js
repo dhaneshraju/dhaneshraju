@@ -12,20 +12,40 @@ export default async function handler(req, res) {
       // Vercel may not parse JSON automatically
       let body = req.body;
       if (typeof body === 'string') {
-        body = JSON.parse(body);
+        try {
+          body = JSON.parse(body);
+        } catch (e) {
+          console.error('Error parsing JSON:', e);
+          return res.status(400).json({ error: 'Invalid JSON format' });
+        }
       }
 
-      const { message } = body;
+      console.log('Request body:', body); // Debug log
+
+      // Handle different possible message field names
+      const message = body.message || body.query || body.prompt || body.input;
+      
       if (!message) {
-        return res.status(400).json({ error: 'Message is required' });
+        console.error('No message found in request body:', body);
+        return res.status(400).json({ 
+          error: 'Message is required', 
+          receivedBody: body,
+          possibleFields: ['message', 'query', 'prompt', 'input']
+        });
       }
 
       // Example logic, replace with your AI assistant logic
       const response = `Echo: ${message}`;
-      return res.status(200).json({ response });
+      return res.status(200).json({ 
+        response,
+        originalMessage: message
+      });
     } catch (err) {
       console.error('Error in /api/chat:', err);
-      return res.status(500).json({ error: 'Internal server error' });
+      return res.status(500).json({ 
+        error: 'Internal server error',
+        details: err.message 
+      });
     }
   }
 
@@ -33,4 +53,3 @@ export default async function handler(req, res) {
   res.setHeader('Allow', ['GET', 'POST']);
   return res.status(405).json({ error: `Method ${req.method} not allowed` });
 }
-
