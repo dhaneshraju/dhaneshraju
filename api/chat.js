@@ -47,62 +47,75 @@ async function initializeServices() {
       console.log('✅ Groq initialized successfully');
 
       // Initialize Pinecone for serverless environment
-      const pineconeConfig = {
-        apiKey: process.env.PINECONE_API_KEY,
-        // For serverless, we don't need the environment
-        // Instead, we'll use the full endpoint URL
-        endpoint: 'https://gleaming-cypress-0dwhbk1.svc.aped-4627-b74a.pinecone.io',
-        // Add timeout to prevent hanging
-        timeoutMs: 10000
-      };
+      console.log('Initializing Pinecone serverless...');
       
-      console.log('Initializing Pinecone serverless with config:', {
-        endpoint: pineconeConfig.endpoint,
-        hasApiKey: !!pineconeConfig.apiKey,
-        timeoutMs: pineconeConfig.timeoutMs
+      // Get Pinecone endpoint from environment variable
+      const pineconeEndpoint = process.env.PINECONE_ENDPOINT;
+      if (!pineconeEndpoint) {
+        throw new Error('PINECONE_ENDPOINT environment variable is required');
+      }
+      
+      // Log the configuration (without the full endpoint for security)
+      console.log('Pinecone configuration:', {
+        hasEndpoint: !!pineconeEndpoint,
+        hasApiKey: !!process.env.PINECONE_API_KEY,
+        index: process.env.PINECONE_INDEX
       });
       
-      pinecone = new Pinecone(pineconeConfig);
+      // Initialize Pinecone with the correct configuration
+      pinecone = new Pinecone({
+        apiKey: process.env.PINECONE_API_KEY,
+        environment: 'gcp-starter' // This is required but not used for serverless
+      });
       
-      // Test Pinecone connection with a simple operation
+      // For serverless, we need to create a custom index configuration
+      const indexName = process.env.PINECONE_INDEX;
+      if (!indexName) {
+        throw new Error('PINECONE_INDEX environment variable is required');
+      }
+      
+      // Test Pinecone serverless connection
       try {
         console.log('Testing Pinecone serverless connection...');
-        // For serverless, we'll try to describe the index instead of listing all
-        const indexName = process.env.PINECONE_INDEX;
-        if (!indexName) {
-          throw new Error('PINECONE_INDEX environment variable is not set');
-        }
         
-        // Get a reference to the index
-        const index = pinecone.Index(indexName);
+        // Get a reference to the index with the full endpoint
+        const index = pinecone.Index(indexName, {
+          host: pineconeEndpoint
+        });
         
         // Try a simple operation to test the connection
+        console.log('Sending test request to Pinecone serverless...');
         const indexStats = await index.describeIndexStats();
         
         console.log('✅ Pinecone serverless connected successfully', {
           index: indexName,
-          stats: indexStats
+          stats: indexStats,
+          endpoint: pineconeEndpoint
         });
       } catch (pineconeError) {
         console.error('❌ Pinecone serverless connection failed:', {
           message: pineconeError.message,
           code: pineconeError.code,
           status: pineconeError.status,
-          stack: pineconeError.stack
+          stack: pineconeError.stack,
+          endpoint: pineconeEndpoint,
+          index: indexName
         });
         
         // Provide more helpful error messages for common issues
-        if (pineconeError.message.includes('404')) {
-          throw new Error(`Pinecone index not found. Please check your index name (${process.env.PINECONE_INDEX}) is correct.`);
-        } else if (pineconeError.message.includes('401') || pineconeError.message.includes('403')) {
+        if (pineconeError.message.includes('404') || pineconeError.status === 404) {
+          throw new Error(`Pinecone index "${indexName}" not found. Please verify the index exists in your Pinecone project.`);
+        } else if (pineconeError.message.includes('401') || pineconeError.status === 401) {
           throw new Error('Invalid Pinecone API key. Please verify your API key is correct.');
-        } else if (pineconeError.message.includes('timeout')) {
+        } else if (pineconeError.message.includes('403') || pineconeError.status === 403) {
+          throw new Error('Access denied. Please check your API key and project permissions.');
+        } else if (pineconeError.message.includes('timeout') || pineconeError.code === 'ECONNABORTED') {
           throw new Error('Connection to Pinecone timed out. Please check your network connection.');
-        } else if (pineconeError.message.includes('ENOTFOUND')) {
-          throw new Error('Could not resolve Pinecone endpoint. Please check your endpoint URL and network connection.');
+        } else if (pineconeError.message.includes('ENOTFOUND') || pineconeError.code === 'ENOTFOUND') {
+          throw new Error(`Could not resolve Pinecone endpoint: ${pineconeEndpoint}. Please verify the endpoint is correct.`);
+        } else if (pineconeError.message.includes('Unexpected token') || pineconeError.message.includes('JSON Parse')) {
+          throw new Error('Received an invalid response from Pinecone. Please verify your endpoint and API key.');
         }
-        
-        throw pineconeError;
       }
 
       // Initialize Hugging Face for embeddings
@@ -250,6 +263,7 @@ async function getEmbedding(text, retries = 2) {
 }
 
 // Query Pinecone for relevant context with enhanced error handling
+// Query Pinecone serverless with better error handling
 async function queryPinecone(query, topK = 3) {
   try {
     console.log('Starting Pinecone query...');
@@ -257,7 +271,7 @@ async function queryPinecone(query, topK = 3) {
     // Ensure services are initialized
     if (!servicesInitialized) {
       console.log('Services not initialized, initializing...');
-      initializeServices();
+      await initializeServices();
       if (!servicesInitialized) {
         throw new Error('Services failed to initialize. Please check server logs.');
       }
@@ -272,11 +286,19 @@ async function queryPinecone(query, topK = 3) {
       throw new Error('Pinecone index not configured');
     }
 
-    console.log(`Querying Pinecone index: ${pineconeIndex}`);
+    console.log(`Querying Pinecone serverless index: ${pineconeIndex}`);
     
     try {
-      const index = pinecone.Index(pineconeIndex);
-      console.log('Successfully connected to Pinecone index');
+      // Get index with the serverless endpoint from environment
+      const index = pinecone.Index(pineconeIndex, {
+        host: process.env.PINECONE_ENDPOINT
+      });
+      
+      if (!process.env.PINECONE_ENDPOINT) {
+        throw new Error('PINECONE_ENDPOINT environment variable is required');
+      }
+      
+      console.log('Successfully connected to Pinecone serverless index');
       
       console.log('Generating embedding for query...');
       const queryEmbedding = await getEmbedding(query);
@@ -287,7 +309,7 @@ async function queryPinecone(query, topK = 3) {
       
       console.log(`Generated embedding with ${queryEmbedding[0]?.length || 0} dimensions`);
 
-      console.log('Sending query to Pinecone...');
+      console.log('Sending query to Pinecone serverless...');
       const queryResponse = await index.query({
         vector: queryEmbedding[0],
         topK,
@@ -308,6 +330,8 @@ async function queryPinecone(query, topK = 3) {
             text: (matches[0].metadata?.text || '').substring(0, 100) + '...'
           }
         });
+      } else {
+        console.log('No matches found in Pinecone index');
       }
       
       return matches;
