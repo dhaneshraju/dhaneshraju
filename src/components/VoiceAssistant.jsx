@@ -629,7 +629,7 @@ const VoiceAssistant = ({ isOpen, onClose, inputMode, onInputModeChange, onAISpe
                         {String(message.content || '')}
                       </ReactMarkdown>
                       
-                      {message.sources && message.sources.length > 0 && (
+                      {false && message.sources && message.sources.length > 0 && (
                         <div className="mt-2 pt-2 border-t border-gray-600">
                           <div className="flex items-center text-xs text-gray-400 mb-1">
                             <svg className="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">

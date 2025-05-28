@@ -48,11 +48,10 @@ export default defineConfig(({ mode, command }) => {
       proxy: isDev ? {
         // Only configure proxy in development
         '/api': {
-          target: 'https://localhost:3000',
-          changeOrigin: true,
+          target: 'https://localhost:3001',
           secure: false,  // false because we're using self-signed certs in development
-          ws: true,
-          // Add this to handle self-signed certificates in development
+          changeOrigin: true,
+          ws: true,  // Enable WebSocket proxying
           configure: (proxy, _options) => {
             proxy.on('error', (err, _req, _res) => {
               console.error('Proxy error:', err);

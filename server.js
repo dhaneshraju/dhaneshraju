@@ -300,29 +300,38 @@ app.post('/api/chat', async (req, res) => {
   console.log(`\n=== New Chat Request (ID: ${requestId}) ===`);
   
   try {
-    const { messages } = req.body;
+    const { messages, message } = req.body;
+    let userQuery, conversationMessages;
     
-    if (!messages || !Array.isArray(messages)) {
+    // Handle both message (legacy) and messages (chat completion) formats
+    if (message) {
+      // Legacy format: { message: "user query" }
+      userQuery = message;
+      conversationMessages = [
+        { role: "system", content: "You are a helpful AI assistant." },
+        { role: "user", content: message }
+      ];
+    } else if (messages && Array.isArray(messages)) {
+      // Chat completion format: { messages: [...] }
+      const lastUserMessage = [...messages].reverse().find(m => m.role === 'user');
+      if (!lastUserMessage) {
+        return res.status(400).json({
+          success: false,
+          error: 'no_user_message',
+          message: 'No user message found in conversation',
+          requestId
+        });
+      }
+      userQuery = lastUserMessage.content;
+      conversationMessages = messages;
+    } else {
       return res.status(400).json({
         success: false,
         error: 'invalid_request',
-        message: 'Expected messages array in request body',
+        message: 'Expected either "message" or "messages" in request body',
         requestId
       });
     }
-    
-    // Get the last user message
-    const lastUserMessage = [...messages].reverse().find(m => m.role === 'user');
-    if (!lastUserMessage) {
-      return res.status(400).json({
-        success: false,
-        error: 'no_user_message',
-        message: 'No user message found in conversation',
-        requestId
-      });
-    }
-    
-    const userQuery = lastUserMessage.content;
     console.log(`[${requestId}] Processing query: "${userQuery}"`);
     
     // 1. Search Pinecone for relevant context
@@ -332,19 +341,47 @@ app.post('/api/chat', async (req, res) => {
     if (searchResults.length === 0) {
       console.log(`[${requestId}] No relevant context found in Pinecone`);
       // Fallback to regular chat if no context found
-      const response = await groq.chat.completions.create({
-        messages: [
-          ...messages,
-          {
-            role: "system",
-            content: "You are a helpful AI assistant. Answer the user's question based on your general knowledge."
-          }
-        ],
-        model: 'llama3-8b-8192',
-        temperature: 0.7,
-        max_tokens: 1000,
-        stream: false
-      });
+      try {
+        const response = await groq.chat.completions.create({
+          messages: conversationMessages, // Use the already prepared conversation messages
+          model: 'llama3-70b-8192',
+          temperature: 0.7,
+          max_tokens: 1000,
+          stream: false
+        });
+        
+        return res.json({
+          id: response.id,
+          object: 'chat.completion',
+          created: Math.floor(Date.now() / 1000),
+          model: response.model,
+          response: response.choices[0]?.message?.content || "I couldn't generate a response.",
+          choices: response.choices.map(choice => ({
+            index: choice.index,
+            message: {
+              role: choice.message.role,
+              content: choice.message.content
+            },
+            finish_reason: choice.finish_reason
+          })),
+          usage: response.usage || {
+            prompt_tokens: 0,
+            completion_tokens: 0,
+            total_tokens: 0
+          },
+          sources: []
+        });
+        
+      } catch (groqError) {
+        console.error(`[${requestId}] Groq API Error:`, groqError);
+        return res.status(500).json({
+          success: false,
+          error: 'groq_api_error',
+          message: 'Failed to generate response from Groq API',
+          details: groqError.message,
+          requestId
+        });
+      }
       
       return res.json({
         id: response.id,
@@ -363,34 +400,56 @@ app.post('/api/chat', async (req, res) => {
       });
     }
     
-    console.log(`[${requestId}] Found ${searchResults.length} relevant context items`);
-    
-    // 2. Generate response using context
-    console.log(`[${requestId}] Generating response with context...`);
-    const responseText = await generateResponse(userQuery, searchResults);
-    
-    // 3. Format and send response
-    console.log(`[${requestId}] Sending response to client`);
-    
-    return res.json({
-      id: `chatcmpl-${Date.now()}`,
-      object: 'chat.completion',
-      created: Math.floor(Date.now() / 1000),
-      model: 'llama3-70b-8192',
-      choices: [{
-        index: 0,
-        message: {
-          role: 'assistant',
-          content: responseText
+    try {
+      console.log(`[${requestId}] Found ${searchResults.length} relevant context items`);
+      
+      // 2. Generate response using context
+      console.log(`[${requestId}] Generating response with context...`);
+      const responseText = await generateResponse(userQuery, searchResults);
+      
+      // 3. Format and send response
+      console.log(`[${requestId}] Sending response to client`);
+      
+      // Return response in a format that works with both chat completion and legacy formats
+      const responseData = {
+        id: `chatcmpl-${Date.now()}`,
+        object: 'chat.completion',
+        created: Math.floor(Date.now() / 1000),
+        model: 'llama3-70b-8192',
+        response: responseText,  // Legacy format
+        choices: [{
+          index: 0,
+          message: {
+            role: 'assistant',
+            content: responseText
+          },
+          finish_reason: 'stop'
+        }],
+        usage: {
+          prompt_tokens: 0,  // These would need to be calculated
+          completion_tokens: 0,
+          total_tokens: 0
         },
-        finish_reason: 'stop'
-      }],
-      usage: {
-        prompt_tokens: 0,  // These would need to be calculated
-        completion_tokens: 0,
-        total_tokens: 0
-      }
-    });
+        sources: (searchResults || []).map((result, idx) => ({
+          id: result.id || `result-${idx}`,
+          text: result.metadata?.text || '',
+          source: result.metadata?.source || 'unknown',
+          score: result.score || 0
+        }))
+      };
+      
+      return res.json(responseData);
+      
+    } catch (genError) {
+      console.error(`[${requestId}] Error generating response:`, genError);
+      return res.status(500).json({
+        success: false,
+        error: 'response_generation_error',
+        message: 'Failed to generate response',
+        details: genError.message,
+        requestId
+      });
+    }
     
   } catch (error) {
     console.error(`[${requestId}] Error:`, error);
@@ -407,6 +466,7 @@ app.post('/api/chat', async (req, res) => {
 
 // Determine if we're in development mode
 const isDev = process.env.NODE_ENV !== 'production';
+const PORT = process.env.PORT || 3001;
 
 if (isDev) {
   try {
@@ -416,51 +476,38 @@ if (isDev) {
       cert: fs.readFileSync(path.join(__dirname, '.cert/cert.pem')),
     };
 
-    const PORT = process.env.PORT || 3000;
-    const HOST = '0.0.0.0';
-
-    // Create HTTPS server
     const server = https.createServer(sslOptions, app);
-
-    // Start the server
-    server.listen(PORT, HOST, () => {
-      console.log(`Server running at https://localhost:${PORT}`);
-      console.log(`API available at https://localhost:${PORT}/api/chat`);
-      console.log('Note: Using self-signed certificate. You may need to accept the security exception in your browser.');
-      console.log(`Listening on all network interfaces (0.0.0.0:${PORT} and [::]:${PORT})`);
-    });
-
-    // Handle port in use error
-    server.on('error', (error) => {
-      if (error.code === 'EADDRINUSE') {
-        const altPort = parseInt(PORT) + 1;
-        console.warn(`Port ${PORT} is in use, trying port ${altPort}...`);
-        
-        // Try to start server on alternative port
-        const altServer = https.createServer(sslOptions, app).listen(altPort, HOST, () => {
-          console.log(`Server is running on https://${HOST}:${altPort}`);
-          console.log(`API available at https://${HOST}:${altPort}/api/chat`);
-          console.log('Note: Using self-signed certificate. You may need to accept the security exception in your browser.');
-          console.log(`Listening on all network interfaces (${HOST}:${altPort} and [::]:${altPort})`);
-        });
-        
-        // Handle errors on the alternative server
-        altServer.on('error', (altError) => {
-          console.error(`Failed to start server on port ${altPort}:`, altError);
+    
+    // Handle port in use error by trying the next port
+    const startServer = (port) => {
+      const onError = (error) => {
+        if (error.code === 'EADDRINUSE') {
+          const nextPort = parseInt(port) + 1;
+          console.warn(`Port ${port} is in use, trying port ${nextPort}...`);
+          server.close();
+          startServer(nextPort);
+        } else {
+          console.error('Server error:', error);
           process.exit(1);
-        });
-      } else {
-        console.error('Server error:', error);
-        process.exit(1);
-      }
-    });
+        }
+      };
+
+      server.listen(port, '0.0.0.0', () => {
+        console.log(`Backend server running at https://localhost:${port}`);
+        console.log(`API available at https://localhost:${port}/api/chat`);
+        console.log('Note: Using self-signed certificate. You may need to accept the security exception in your browser.');
+        console.log(`Listening on all network interfaces (0.0.0.0:${port} and [::]:${port})`);
+      }).on('error', onError);
+    };
+
+    startServer(PORT);
   } catch (error) {
     console.warn('Could not start HTTPS server. Falling back to HTTP. Error:', error.message);
-    startHttpServer(process.env.PORT || 3000);
+    startHttpServer(PORT);
   }
 } else {
   // In production, use HTTP (Vercel will handle HTTPS)
-  startHttpServer(process.env.PORT || 3000);
+  startHttpServer(PORT);
 }
 
 // Function to start HTTP server with port fallback
