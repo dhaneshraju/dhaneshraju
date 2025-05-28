@@ -4,11 +4,14 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "dev": "next dev",
-    "build": "next build",
-    "start": "next start",
-    "lint": "eslint .",
-    "server": "node server.js"
+    "dev": "vite",
+    "dev:https": "vite --host --open",
+    "build": "vite build",
+    "preview": "vite preview",
+    "start": "node server.js",
+    "server": "nodemon server.js",
+    "vercel-build": "vite build",
+    "lint": "eslint ."
   },
   "dependencies": {
     "@huggingface/inference": "^2.6.4",
