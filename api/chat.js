@@ -61,10 +61,28 @@ async function initializeServices() {
         index: process.env.PINECONE_INDEX
       });
       
-      // Initialize Pinecone with the latest serverless client
+      // Initialize Pinecone with configuration for serverless environments
       pinecone = new Pinecone({
         apiKey: process.env.PINECONE_API_KEY,
-        environment: 'gcp-starter' // This is required for serverless
+        environment: 'gcp-starter',
+        // Add fetch implementation for serverless environments
+        fetch: (url, options) => {
+          // Add custom headers if needed
+          const headers = {
+            ...options?.headers,
+            'Content-Type': 'application/json'
+          };
+          
+          // Use node-fetch with keepalive for better connection handling
+          return fetch(url, {
+            ...options,
+            headers,
+            // Add timeout to prevent hanging requests
+            timeout: 10000, // 10 seconds
+            // Enable keepalive for better connection reuse
+            keepalive: true
+          });
+        }
       });
       
       console.log('Pinecone client initialized');
@@ -76,15 +94,31 @@ async function initializeServices() {
       
       console.log(`Using Pinecone index: ${indexName}`);
       
-      // Test the connection
+      // Test the connection with better error handling
       try {
         // Get the index reference
         const index = pinecone.index(indexName);
         
-        // Test the connection using describeIndexStats
+        // Test the connection using describeIndexStats with timeout
         console.log('Testing Pinecone connection...');
-        await index.describeIndexStats();
-        console.log('Successfully connected to Pinecone index');
+        
+        // Add a timeout to prevent hanging
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 seconds timeout
+        
+        try {
+          await index.describeIndexStats({
+            signal: controller.signal
+          });
+          clearTimeout(timeoutId);
+          console.log('Successfully connected to Pinecone index');
+        } catch (describeError) {
+          clearTimeout(timeoutId);
+          if (describeError.name === 'AbortError') {
+            throw new Error('Pinecone connection timed out. Please check your network connection and try again.');
+          }
+          throw describeError;
+        }
         
       } catch (error) {
         console.error('Failed to connect to Pinecone index:', error);
@@ -694,6 +728,18 @@ export default async function handler(req, res) {
       let errorType = 'Internal Server Error';
       let message = 'An unexpected error occurred';
       let details = {};
+      
+      // Handle Pinecone connection errors specifically
+      if (error.message.includes('Pinecone') || error.message.includes('ECONNRESET') || error.message.includes('timeout')) {
+        statusCode = 503; // Service Unavailable
+        errorType = 'Service Unavailable';
+        message = 'Unable to connect to the knowledge base. Please try again later.';
+        details = {
+          error: 'Pinecone connection failed',
+          suggestion: 'This might be a temporary issue. Please try again in a few minutes.',
+          reference: 'https://status.pinecone.io/'
+        };
+      }
       
       // Log the full error for debugging
       console.error('API Error Details:', {
