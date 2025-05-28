@@ -473,7 +473,7 @@ const PORT = process.env.PORT || 3001;
 
 if (isVercel) {
   // Export the Express app for Vercel serverless functions
-  module.exports = app;why 
+  module.exports = app;
 } else if (isDev) {
   // Development server with HTTPS
   try {

@@ -10,8 +10,23 @@
     "preview": "vite preview",
     "start": "node server.js",
     "server": "nodemon server.js",
-    "vercel-build": "vite build",
+    "vercel-build": "vite build && cp -r public/. dist/public/ 2>/dev/null || :",
     "lint": "eslint ."
+  },
+  "engines": {
+    "node": ">=16.0.0"
+  },
+  "browserslist": {
+    "production": [
+      ">0.2%",
+      "not dead",
+      "not op_mini all"
+    ],
+    "development": [
+      "last 1 chrome version",
+      "last 1 firefox version",
+      "last 1 safari version"
+    ]
   },
   "dependencies": {
     "@huggingface/inference": "^2.6.4",
