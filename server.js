@@ -25,84 +25,66 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
 // Serve static files from the Vite build directory in production
-
-// Serve static files with proper MIME types
-app.use(express.static(path.join(__dirname, 'dist'), {
-  setHeaders: (res, path) => {
-    if (path.endsWith('.css')) {
-      res.setHeader('Content-Type', 'text/css');
-    } else if (path.endsWith('.js')) {
-      res.setHeader('Content-Type', 'application/javascript');
-    } else if (path.endsWith('.json')) {
-      res.setHeader('Content-Type', 'application/json');
-    }
-  }
-}));
-
-// API routes should be defined before the catch-all route
-// Your existing API routes are already defined above
-
-// Handle SPA fallback - return the main index.html for all non-API routes
-app.get('*', (req, res) => {
-  // Don't serve HTML for API routes
-  if (req.path.startsWith('/api/')) {
-    return res.status(404).json({ error: 'Not found' });
-  }
+if (process.env.NODE_ENV === 'production') {
+  const __dirname = path.dirname(fileURLToPath(import.meta.url));
   
-  // Serve index.html for all other routes
-  res.sendFile(path.join(__dirname, 'dist', 'index.html'), {
-    headers: {
-      'Content-Type': 'text/html; charset=UTF-8'
+  // Serve static files with proper MIME types
+  app.use(express.static(path.join(__dirname, 'dist'), {
+    setHeaders: (res, path) => {
+      if (path.endsWith('.css')) {
+        res.setHeader('Content-Type', 'text/css');
+      } else if (path.endsWith('.js')) {
+        res.setHeader('Content-Type', 'application/javascript');
+      } else if (path.endsWith('.json')) {
+        res.setHeader('Content-Type', 'application/json');
+      }
     }
+  }));
+  
+  // Handle SPA fallback - return the main index.html for all routes
+  app.get('*', (req, res) => {
+    res.sendFile(path.join(__dirname, 'dist', 'index.html'), {
+      headers: {
+        'Content-Type': 'text/html; charset=UTF-8'
+      }
+    });
   });
-});
-
-// Body parser middleware
-app.use(express.json({ limit: '10mb' }));
-app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+}
 
 // CORS configuration
-const allowedOrigins = [
-  'http://localhost:3000',
-  'http://localhost:5173',
-  'https://dhaneshraju.vercel.app',
-  'https://dhaneshraju.vercel.app/'
-];
-
-const corsOptions = {
-  origin: function (origin, callback) {
-    // Allow requests with no origin (like mobile apps or curl requests)
-    if (!origin) return callback(null, true);
-    
-    if (allowedOrigins.includes(origin) || origin.endsWith('.vercel.app')) {
-      callback(null, true);
-    } else {
-      console.log('Blocked by CORS:', origin);
-      callback(new Error('Not allowed by CORS'));
+const corsOptions = process.env.NODE_ENV === 'production' 
+  ? {
+      origin: [
+        'https://your-vercel-app-url.vercel.app',
+        'https://*.vercel.app',
+        'http://localhost:3000',
+        'http://localhost:3001',
+        'http://localhost:5173',
+        'https://localhost:3000',
+        'https://localhost:3001',
+        'https://localhost:5173'
+      ],
+      credentials: true,
+      methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+      allowedHeaders: ['Content-Type', 'Authorization']
     }
-  },
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
-  credentials: true,
-  optionsSuccessStatus: 200 // For legacy browser support
-};
+  : {
+      origin: [
+        'http://localhost:3000',
+        'https://localhost:3000',
+        'http://127.0.0.1:3000',
+        'https://127.0.0.1:3000',
+        'http://localhost:3001',
+        'https://localhost:3001',
+        'http://localhost:5173',
+        'https://localhost:5173',
+      ],
+      credentials: true,
+      methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+      allowedHeaders: ['Content-Type', 'Authorization']
+    };
 
-// Enable pre-flight across-the-board
-app.options('*', cors(corsOptions));
-
-// Apply CORS middleware
 app.use(cors(corsOptions));
-
-// Log CORS headers for debugging
-app.use((req, res, next) => {
-  console.log('Incoming request:', {
-    method: req.method,
-    url: req.url,
-    origin: req.headers.origin,
-    'user-agent': req.headers['user-agent']
-  });
-  next();
-});
 
 // Log all requests
 app.use((req, res, next) => {
@@ -316,25 +298,11 @@ app.get('/api/test', (req, res) => {
 app.post('/api/chat', async (req, res) => {
   const requestId = Date.now();
   console.log(`\n=== New Chat Request (ID: ${requestId}) ===`);
-  console.log('Request headers:', JSON.stringify(req.headers, null, 2));
-  console.log('Request body:', JSON.stringify(req.body, null, 2));
   
   try {
-    // Check for missing body
-    if (!req.body) {
-      console.error('No request body received');
-      return res.status(400).json({
-        success: false,
-        error: 'invalid_request',
-        message: 'Request body is required',
-        requestId
-      });
-    }
-    
     const { messages } = req.body;
     
     if (!messages || !Array.isArray(messages)) {
-      console.error('Invalid request: Missing or invalid messages array');
       return res.status(400).json({
         success: false,
         error: 'invalid_request',

@@ -1,7 +1,7 @@
-import { defineConfig } from 'vite';
+import { defineConfig, loadEnv } from 'vite';
 import react from '@vitejs/plugin-react';
-import { nodePolyfills } from 'vite-plugin-node-polyfills';
-import { resolve } from 'path';
+import fs from 'fs';
+import basicSsl from '@vitejs/plugin-basic-ssl';
 
 // https://vitejs.dev/config/
 export default defineConfig(({ mode, command }) => {
@@ -11,22 +11,26 @@ export default defineConfig(({ mode, command }) => {
   // Check if we're in development mode
   const isDev = command === 'serve';
   
+  // HTTPS configuration - only for local development
+  const httpsConfig = isDev && fs.existsSync('.cert/key.pem') && fs.existsSync('.cert/cert.pem')
+    ? {
+        key: fs.readFileSync('.cert/key.pem'),
+        cert: fs.readFileSync('.cert/cert.pem'),
+      }
+    : false;
+
   return {
     plugins: [
       react(),
-      nodePolyfills()
-    ],
+      // Enable basic SSL in development if certs exist
+      isDev && httpsConfig && basicSsl()
+    ].filter(Boolean),
     build: {
       outDir: 'dist',
       assetsDir: 'assets',
       emptyOutDir: true,
       sourcemap: true,
-      minify: 'terser',
-      brotliSize: true,
       rollupOptions: {
-        input: {
-          main: resolve(__dirname, 'index.html')
-        },
         output: {
           assetFileNames: 'assets/[name]-[hash][extname]',
           chunkFileNames: 'assets/[name]-[hash].js',
@@ -37,8 +41,10 @@ export default defineConfig(({ mode, command }) => {
     base: '/',
     server: {
       port: 3000,
-      host: true,
+      open: true,
+      https: httpsConfig,
       strictPort: true,
+      host: true, // Listen on all network interfaces
       proxy: isDev ? {
         // Only configure proxy in development
         '/api': {
