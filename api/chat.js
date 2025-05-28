@@ -61,85 +61,24 @@ async function initializeServices() {
         index: process.env.PINECONE_INDEX
       });
       
-      // Initialize Pinecone with configuration for serverless environments
+      // Initialize Pinecone with minimal configuration (matching backup)
       pinecone = new Pinecone({
-        apiKey: process.env.PINECONE_API_KEY,
-        environment: 'gcp-starter',
-        // Add fetch implementation for serverless environments
-        fetch: (url, options) => {
-          // Add custom headers if needed
-          const headers = {
-            ...options?.headers,
-            'Content-Type': 'application/json'
-          };
-          
-          // Use node-fetch with keepalive for better connection handling
-          return fetch(url, {
-            ...options,
-            headers,
-            // Add timeout to prevent hanging requests
-            timeout: 10000, // 10 seconds
-            // Enable keepalive for better connection reuse
-            keepalive: true
-          });
-        }
+        apiKey: process.env.PINECONE_API_KEY
       });
       
       console.log('Pinecone client initialized');
       
-      const indexName = process.env.PINECONE_INDEX;
-      if (!indexName) {
-        throw new Error('PINECONE_INDEX environment variable is required');
+      // Get the index name from environment variables
+      pineconeIndex = process.env.PINECONE_INDEX;
+      
+      if (!pineconeIndex) {
+        throw new Error('PINECONE_INDEX environment variable is not set');
       }
       
-      console.log(`Using Pinecone index: ${indexName}`);
+      console.log(`Using Pinecone index: ${pineconeIndex}`);
       
-      // Test the connection with better error handling
-      try {
-        // Get the index reference
-        const index = pinecone.index(indexName);
-        
-        // Test the connection using describeIndexStats with timeout
-        console.log('Testing Pinecone connection...');
-        
-        // Add a timeout to prevent hanging
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 seconds timeout
-        
-        try {
-          await index.describeIndexStats({
-            signal: controller.signal
-          });
-          clearTimeout(timeoutId);
-          console.log('Successfully connected to Pinecone index');
-        } catch (describeError) {
-          clearTimeout(timeoutId);
-          if (describeError.name === 'AbortError') {
-            throw new Error('Pinecone connection timed out. Please check your network connection and try again.');
-          }
-          throw describeError;
-        }
-        
-      } catch (error) {
-        console.error('Failed to connect to Pinecone index:', error);
-        
-        // Provide more helpful error messages for common issues
-        if (error.message.includes('404') || error.status === 404) {
-          throw new Error(`Pinecone index "${indexName}" not found. Please verify the index exists in your Pinecone project.`);
-        } else if (error.message.includes('401') || error.status === 401) {
-          throw new Error('Invalid Pinecone API key. Please verify your API key is correct.');
-        } else if (error.message.includes('403') || error.status === 403) {
-          throw new Error('Access denied. Please check your API key and project permissions.');
-        } else if (error.message.includes('timeout') || error.code === 'ECONNABORTED') {
-          throw new Error('Connection to Pinecone timed out. Please check your network connection.');
-        } else if (error.message.includes('ENOTFOUND') || error.code === 'ENOTFOUND') {
-          throw new Error('Could not resolve Pinecone service. Please check your network connection.');
-        } else if (error.message.includes('Unexpected token') || error.message.includes('JSON Parse')) {
-          throw new Error('Received an invalid response from Pinecone. Please verify your API key and environment settings.');
-        } else {
-          throw new Error(`Failed to connect to Pinecone: ${error.message}`);
-        }
-      }
+      // Skip the connection test to match backup behavior
+      console.log('Skipping Pinecone connection test (matching backup behavior)');
 
       // Initialize Hugging Face for embeddings
       hf = new HfInference(process.env.HUGGINGFACE_API_KEY);
