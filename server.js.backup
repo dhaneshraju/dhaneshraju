@@ -1,0 +1,249 @@
+import express from 'express';
+import cors from 'cors';
+import dotenv from 'dotenv';
+import path from 'path';
+import { fileURLToPath } from 'url';
+import { Pinecone } from '@pinecone-database/pinecone';
+import { Groq } from 'groq-sdk';
+import { createEmbedder } from './src/services/api/embeddings.js';
+
+// Load environment variables
+dotenv.config();
+
+// Define __dirname for ES modules
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+const app = express();
+const port = process.env.PORT || 3000;
+
+// CORS configuration
+const allowedOrigins = [
+  'http://localhost:3001',
+  'https://localhost:3001',
+  'http://localhost:3000',
+  'https://localhost:3000',
+  'http://127.0.0.1:3001',
+  'https://127.0.0.1:3001'
+];
+
+// Middleware
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
+
+// CORS middleware
+app.use((req, res, next) => {
+  const origin = req.headers.origin;
+  
+  // Log incoming requests for debugging
+  console.log(`[${new Date().toISOString()}] ${req.method} ${req.path}`, {
+    origin,
+    'user-agent': req.headers['user-agent']
+  });
+  
+  // Set CORS headers
+  if (origin && allowedOrigins.includes(origin)) {
+    res.header('Access-Control-Allow-Origin', origin);
+  }
+  
+  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+  res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization');
+  res.header('Access-Control-Allow-Credentials', 'true');
+  
+  // Handle preflight requests
+  if (req.method === 'OPTIONS') {
+    console.log('Handling preflight request');
+    return res.status(200).end();
+  }
+  
+  // Continue to the next middleware
+  next();
+});
+
+// Log all requests
+app.use((req, res, next) => {
+  console.log(`[${new Date().toISOString()}] ${req.method} ${req.path}`, {
+    body: req.body,
+    query: req.query,
+    params: req.params
+  });
+  next();
+});
+
+// Only serve static files in production
+if (process.env.NODE_ENV === 'production') {
+  app.use(express.static('dist'));
+  
+  // Handle SPA fallback
+  app.get('*', (req, res) => {
+    res.sendFile(path.resolve(__dirname, 'dist', 'index.html'));
+  });
+}
+
+// Initialize services
+let pinecone;
+try {
+  pinecone = new Pinecone({
+    apiKey: process.env.VITE_PINECONE_API_KEY,
+  });
+} catch (error) {
+  console.error('Failed to initialize Pinecone:', error);
+  process.exit(1);
+}
+
+const groq = new Groq({
+  apiKey: process.env.VITE_GROQ_API_KEY,
+});
+
+// Initialize the embedding generator
+const generateEmbedding = createEmbedder(process.env.VITE_HUGGINGFACE_API_KEY);
+
+// Chat endpoint with enhanced error handling and logging
+app.post('/api/chat', (req, res) => {
+  // Log the raw request for debugging
+  const requestId = Date.now();
+  
+  console.log(`\n=== New Chat Request (ID: ${requestId}) ===`);
+  console.log(`[${new Date().toISOString()}] ${req.method} ${req.originalUrl}`);
+  console.log('Headers:', JSON.stringify(req.headers, null, 2));
+  
+  // Log the raw request stream
+  let requestBody = '';
+  
+  req.on('data', chunk => {
+    requestBody += chunk.toString();
+  });
+  
+  req.on('end', async () => {
+    console.log('Raw request body:', requestBody);
+    
+    try {
+      // Parse the request body
+      const body = requestBody ? JSON.parse(requestBody) : {};
+      console.log('Parsed body:', JSON.stringify(body, null, 2));
+      
+      // Check if request body exists and has the expected format
+      if (!body || typeof body !== 'object' || !body.messages || !Array.isArray(body.messages)) {
+        console.error('Invalid request format:', body);
+        return res.status(400).json({
+          success: false,
+          error: 'invalid_request',
+          message: 'Invalid request format. Expected { messages: Array }',
+          requestId
+        });
+      }
+      
+      // Validate each message in the messages array
+      const validatedMessages = [];
+      for (const [index, message] of body.messages.entries()) {
+        if (!message.role || !message.content) {
+          console.error(`Invalid message at index ${index}:`, message);
+          return res.status(400).json({
+            success: false,
+            error: 'invalid_message',
+            message: `Message at index ${index} is missing required fields (role, content)`,
+            requestId
+          });
+        }
+        validatedMessages.push({
+          role: message.role,
+          content: message.content.toString().trim()
+        });
+      }
+      
+      // Ensure we have at least one message
+      if (validatedMessages.length === 0) {
+        return res.status(400).json({
+          success: false,
+    // Check if request body exists and has the expected format
+    if (!body || typeof body !== 'object' || !body.messages || !Array.isArray(body.messages)) {
+      console.error('Invalid request format:', body);
+      return res.status(400).json({
+        success: false,
+        error: 'invalid_request',
+        message: 'Invalid request format. Expected { messages: Array }',
+        requestId
+      });
+    }
+    
+    // Validate each message in the messages array
+    const validatedMessages = [];
+    for (const [index, message] of body.messages.entries()) {
+      if (!message.role || !message.content) {
+        console.error(`Invalid message at index ${index}:`, message);
+        return res.status(400).json({
+          model: 'llama3-8b-8192',
+          temperature: 0.7,
+          max_tokens: 1000,
+          top_p: 1,
+          stream: false,
+          stop: null
+        });
+
+        console.log('Received response from Groq API:', {
+          id: response.id,
+          model: response.model,
+          usage: response.usage,
+          content: response.choices[0]?.message?.content?.substring(0, 100) + '...'
+        });
+
+        // Send the response back to the client
+        return res.json({
+          id: response.id,
+          object: 'chat.completion',
+          created: Math.floor(Date.now() / 1000),
+          model: response.model,
+          choices: response.choices.map(choice => ({
+            index: choice.index,
+            message: {
+              role: choice.message.role,
+              content: choice.message.content
+            },
+            finish_reason: choice.finish_reason
+          })),
+          usage: response.usage
+        });
+
+      } catch (apiError) {
+        console.error('Error calling Groq API:', apiError);
+        return res.status(500).json({
+          success: false,
+          error: 'api_error',
+          message: 'Error processing your request with the AI service',
+          requestId,
+          ...(process.env.NODE_ENV === 'development' && { details: apiError.message })
+        });
+      }
+
+    } catch (parseError) {
+      console.error('Error parsing request:', parseError);
+      return res.status(400).json({
+        success: false,
+        error: 'parse_error',
+        message: 'Invalid request format',
+        requestId,
+        ...(process.env.NODE_ENV === 'development' && { details: parseError.message })
+      });
+    }
+  });
+  
+  // Handle request errors
+  req.on('error', (error) => {
+    console.error('Request error:', error);
+    if (!res.headersSent) {
+      res.status(500).json({
+        success: false,
+        error: 'request_error',
+        message: 'Error processing your request',
+        requestId,
+        ...(process.env.NODE_ENV === 'development' && { details: error.message })
+      });
+    }
+  });
+});
+
+// Start server
+app.listen(port, () => {
+  console.log(`Server running at http://localhost:${port}`);
+  console.log(`API available at http://localhost:${port}/api/chat`);
+});
