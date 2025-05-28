@@ -68,61 +68,51 @@ async function initializeServices() {
         index: process.env.PINECONE_INDEX
       });
       
-      // Initialize Pinecone with minimal configuration
+      // Initialize Pinecone with the latest serverless client
+      const { Pinecone } = await import('@pinecone-database/pinecone');
+      
       pinecone = new Pinecone({
         apiKey: process.env.PINECONE_API_KEY,
-        environment: 'gcp-starter' // Required but not used with custom endpoint
+        environment: 'gcp-starter' // This is required but not used with serverless
       });
       
-      console.log('Pinecone client initialized with minimal configuration');
+      console.log('Pinecone client initialized with serverless configuration');
       
-      // For serverless, we need to create a custom index configuration
       const indexName = process.env.PINECONE_INDEX;
       if (!indexName) {
         throw new Error('PINECONE_INDEX environment variable is required');
       }
       
-      // Test Pinecone serverless connection
+      console.log(`Using Pinecone index: ${indexName}`);
+      
+      // Test the connection
       try {
-        console.log('Testing Pinecone serverless connection...');
+        // Create the index reference
+        const index = pinecone.Index(indexName);
         
-        // Get a reference to the index with the full endpoint
-        const index = pinecone.Index(indexName, {
-          host: pineconeEndpoint
-        });
+        // Test the connection
+        console.log('Testing Pinecone connection...');
+        await index.describeIndexStats();
+        console.log('Successfully connected to Pinecone index');
         
-        // Try a simple operation to test the connection
-        console.log('Sending test request to Pinecone serverless...');
-        const indexStats = await index.describeIndexStats();
-        
-        console.log('✅ Pinecone serverless connected successfully', {
-          index: indexName,
-          stats: indexStats,
-          endpoint: pineconeEndpoint
-        });
-      } catch (pineconeError) {
-        console.error('❌ Pinecone serverless connection failed:', {
-          message: pineconeError.message,
-          code: pineconeError.code,
-          status: pineconeError.status,
-          stack: pineconeError.stack,
-          endpoint: pineconeEndpoint,
-          index: indexName
-        });
+      } catch (error) {
+        console.error('Failed to connect to Pinecone index:', error);
         
         // Provide more helpful error messages for common issues
-        if (pineconeError.message.includes('404') || pineconeError.status === 404) {
+        if (error.message.includes('404') || error.status === 404) {
           throw new Error(`Pinecone index "${indexName}" not found. Please verify the index exists in your Pinecone project.`);
-        } else if (pineconeError.message.includes('401') || pineconeError.status === 401) {
+        } else if (error.message.includes('401') || error.status === 401) {
           throw new Error('Invalid Pinecone API key. Please verify your API key is correct.');
-        } else if (pineconeError.message.includes('403') || pineconeError.status === 403) {
+        } else if (error.message.includes('403') || error.status === 403) {
           throw new Error('Access denied. Please check your API key and project permissions.');
-        } else if (pineconeError.message.includes('timeout') || pineconeError.code === 'ECONNABORTED') {
+        } else if (error.message.includes('timeout') || error.code === 'ECONNABORTED') {
           throw new Error('Connection to Pinecone timed out. Please check your network connection.');
-        } else if (pineconeError.message.includes('ENOTFOUND') || pineconeError.code === 'ENOTFOUND') {
-          throw new Error(`Could not resolve Pinecone endpoint: ${pineconeEndpoint}. Please verify the endpoint is correct.`);
-        } else if (pineconeError.message.includes('Unexpected token') || pineconeError.message.includes('JSON Parse')) {
-          throw new Error('Received an invalid response from Pinecone. Please verify your endpoint and API key.');
+        } else if (error.message.includes('ENOTFOUND') || error.code === 'ENOTFOUND') {
+          throw new Error('Could not resolve Pinecone service. Please check your network connection.');
+        } else if (error.message.includes('Unexpected token') || error.message.includes('JSON Parse')) {
+          throw new Error('Received an invalid response from Pinecone. Please verify your API key and environment settings.');
+        } else {
+          throw new Error(`Failed to connect to Pinecone: ${error.message}`);
         }
       }
 
@@ -297,15 +287,10 @@ async function queryPinecone(query, topK = 3) {
     console.log(`Querying Pinecone serverless index: ${pineconeIndex}`);
     
     try {
-      // Simple index creation with just the required configuration
       console.log('Creating Pinecone index reference for:', pineconeIndex);
       
-      // Create the index with minimal configuration
+      // Get the index reference
       const index = pinecone.Index(pineconeIndex);
-      
-      console.log('Pinecone index reference created successfully');
-      
-      console.log('Successfully connected to Pinecone serverless index');
       
       console.log('Generating embedding for query...');
       const queryEmbedding = await getEmbedding(query);
@@ -314,11 +299,14 @@ async function queryPinecone(query, topK = 3) {
         throw new Error('Failed to generate query embedding: Empty or invalid embedding');
       }
       
-      console.log(`Generated embedding with ${queryEmbedding[0]?.length || 0} dimensions`);
+      // Ensure we have a valid embedding
+      const embeddingVector = Array.isArray(queryEmbedding[0]) ? queryEmbedding[0] : queryEmbedding;
+      
+      console.log(`Generated embedding with ${embeddingVector.length} dimensions`);
 
       console.log('Sending query to Pinecone serverless...');
       const queryResponse = await index.query({
-        vector: queryEmbedding[0],
+        vector: embeddingVector,
         topK,
         includeMetadata: true,
         includeValues: false
