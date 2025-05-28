@@ -89,33 +89,84 @@ initializeServices();
 // Cache for embeddings to avoid redundant API calls
 const embeddingCache = new Map();
 
-// Generate embedding for text using Hugging Face
-async function getEmbedding(text) {
+// Generate embedding for text using Hugging Face with retries and fallback models
+async function getEmbedding(text, retries = 2) {
   const cacheKey = text.trim().toLowerCase();
   
+  // Return cached embedding if available
   if (embeddingCache.has(cacheKey)) {
     return embeddingCache.get(cacheKey);
   }
 
-  try {
-    const embedding = await hf.featureExtraction({
-      model: 'sentence-transformers/all-MiniLM-L6-v2',
-      inputs: text
-    });
+  // List of models to try in order of preference
+  const models = [
+    'sentence-transformers/all-MiniLM-L6-v2',  // Fast and good for most cases
+    'sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2',  // Multilingual support
+    'sentence-transformers/all-mpnet-base-v2'  // Higher quality but slower
+  ];
+
+  let lastError;
+
+  for (let i = 0; i < models.length; i++) {
+    const model = models[i];
+    console.log(`Trying model: ${model}`);
     
-    embeddingCache.set(cacheKey, embedding);
-    return embedding;
-  } catch (error) {
-    console.error('Error generating embedding:', error);
-    throw new Error('Failed to generate text embedding');
+    for (let attempt = 0; attempt <= retries; attempt++) {
+      try {
+        console.log(`Attempt ${attempt + 1} with model: ${model}`);
+        
+        // Add a small delay between retries
+        if (attempt > 0) {
+          await new Promise(resolve => setTimeout(resolve, 500 * attempt));
+        }
+        
+        // Make the API call
+        const response = await hf.featureExtraction({
+          model: model,
+          inputs: text,
+          options: {
+            wait_for_model: true,  // Wait if model is loading
+            use_cache: true        // Use cached results if available
+          }
+        });
+        
+        if (!response || !Array.isArray(response) || response.length === 0) {
+          throw new Error('Empty response from Hugging Face');
+        }
+        
+        // Cache the successful response
+        embeddingCache.set(cacheKey, response);
+        console.log(`Successfully generated embedding using ${model}`);
+        return response;
+        
+      } catch (error) {
+        lastError = error;
+        console.warn(`Attempt ${attempt + 1} failed for model ${model}:`, error.message);
+        
+        // If we get a rate limit error, wait before retrying
+        if (error.message.includes('rate limit') || error.status === 429) {
+          const waitTime = Math.pow(2, attempt) * 1000; // Exponential backoff
+          console.log(`Rate limited. Waiting ${waitTime}ms before retry...`);
+          await new Promise(resolve => setTimeout(resolve, waitTime));
+        }
+      }
+    }
   }
+  
+  // If we get here, all models and retries failed
+  const errorMessage = `All embedding generation attempts failed. Last error: ${lastError?.message || 'Unknown error'}`;
+  console.error(errorMessage, { text: text.substring(0, 100) + '...' });
+  throw new Error(`Failed to generate text embedding after multiple attempts: ${errorMessage}`);
 }
 
-// Query Pinecone for relevant context
+// Query Pinecone for relevant context with enhanced error handling
 async function queryPinecone(query, topK = 3) {
   try {
+    console.log('Starting Pinecone query...');
+    
     // Ensure services are initialized
     if (!servicesInitialized) {
+      console.log('Services not initialized, initializing...');
       initializeServices();
       if (!servicesInitialized) {
         throw new Error('Services failed to initialize. Please check server logs.');
@@ -132,37 +183,80 @@ async function queryPinecone(query, topK = 3) {
     }
 
     console.log(`Querying Pinecone index: ${pineconeIndex}`);
-    const index = pinecone.Index(pineconeIndex);
     
-    console.log('Generating embedding for query...');
-    const queryEmbedding = await getEmbedding(query);
-    
-    if (!queryEmbedding || !Array.isArray(queryEmbedding) || queryEmbedding.length === 0) {
-      throw new Error('Failed to generate query embedding');
+    try {
+      const index = pinecone.Index(pineconeIndex);
+      console.log('Successfully connected to Pinecone index');
+      
+      console.log('Generating embedding for query...');
+      const queryEmbedding = await getEmbedding(query);
+      
+      if (!queryEmbedding || !Array.isArray(queryEmbedding) || queryEmbedding.length === 0) {
+        throw new Error('Failed to generate query embedding: Empty or invalid embedding');
+      }
+      
+      console.log(`Generated embedding with ${queryEmbedding[0]?.length || 0} dimensions`);
+
+      console.log('Sending query to Pinecone...');
+      const queryResponse = await index.query({
+        vector: queryEmbedding[0],
+        topK,
+        includeMetadata: true,
+        includeValues: false
+      });
+
+      const matches = queryResponse.matches || [];
+      console.log(`Pinecone query successful. Found ${matches.length} matches`);
+      
+      // Log a sample of the matches for debugging
+      if (matches.length > 0) {
+        console.log('Sample match:', {
+          id: matches[0].id,
+          score: matches[0].score,
+          metadata: {
+            source: matches[0].metadata?.source,
+            text: (matches[0].metadata?.text || '').substring(0, 100) + '...'
+          }
+        });
+      }
+      
+      return matches;
+      
+    } catch (pineconeError) {
+      console.error('Pinecone query error:', {
+        message: pineconeError.message,
+        name: pineconeError.name,
+        code: pineconeError.code,
+        status: pineconeError.status,
+        stack: pineconeError.stack
+      });
+      
+      // Enhanced error handling for different Pinecone error scenarios
+      if (pineconeError.message.includes('API key') || pineconeError.status === 401) {
+        throw new Error('Invalid Pinecone API key or environment');
+      } else if (pineconeError.message.includes('index not found') || pineconeError.status === 404) {
+        throw new Error(`Pinecone index not found: ${pineconeIndex}. Please check if the index exists and is accessible.`);
+      } else if (pineconeError.message.includes('connect') || 
+                pineconeError.message.includes('timeout') || 
+                pineconeError.message.includes('network')) {
+        throw new Error('Could not connect to Pinecone service. Please check your network connection and try again.');
+      } else if (pineconeError.status === 429) {
+        throw new Error('Rate limit exceeded for Pinecone API. Please try again later.');
+      }
+      
+      throw new Error(`Failed to query knowledge base: ${pineconeError.message}`);
     }
-
-    console.log('Sending query to Pinecone...');
-    const queryResponse = await index.query({
-      vector: queryEmbedding[0],
-      topK,
-      includeMetadata: true,
-      includeValues: false
-    });
-
-    console.log(`Pinecone query returned ${queryResponse.matches?.length || 0} matches`);
-    return queryResponse.matches || [];
+    
   } catch (error) {
-    console.error('Error querying Pinecone:', error);
+    console.error('Error in queryPinecone:', {
+      message: error.message,
+      name: error.name,
+      stack: error.stack,
+      code: error.code,
+      status: error.status
+    });
     
-    // Check for specific error conditions
-    if (error.message.includes('API key')) {
-      throw new Error('Invalid Pinecone API key or environment');
-    } else if (error.message.includes('index not found')) {
-      throw new Error(`Pinecone index not found: ${process.env.PINECONE_INDEX}`);
-    } else if (error.message.includes('connect')) {
-      throw new Error('Could not connect to Pinecone service');
-    }
-    
+    // Rethrow with a more user-friendly message
     throw new Error(`Knowledge base error: ${error.message}`);
   }
 }
@@ -196,10 +290,23 @@ async function generateResponseWithContext(messages, query) {
 
     console.log('2. Creating system prompt with context...');
     // 3. Create system prompt with context
-    const systemPrompt = `You are a helpful AI assistant. Use the following context to answer the user's question. If you don't know the answer, just say that you don't know, don't try to make up an answer.
+    const systemPrompt = `You are Sophon, an advanced AI assistant created by Dhanesh Raju. You are helpful, knowledgeable, and always aim to provide accurate and useful information.
 
-Context:
-${context || 'No relevant context found.'}`;
+Guidelines for your responses:
+- Always be polite, professional, and friendly
+- If you don't know something, say so rather than making up information
+- Use markdown formatting for better readability (e.g., **bold**, *italic*, lists, etc.)
+- Keep responses concise but thorough
+- Use a warm, approachable tone
+- If relevant, you can reference Dhanesh's expertise in AI and software development
+
+Context from Dhanesh's knowledge base:
+${context || 'No specific context found that directly answers the question.'}
+
+Current conversation history:
+${messages.filter(m => m.role === 'user').map((m, i) => `User: ${m.content}`).join('\n')}
+
+Sophon: `;
 
     // 4. Prepare messages for Groq
     const groqMessages = [
@@ -237,8 +344,14 @@ ${context || 'No relevant context found.'}`;
     console.log('4. Groq API response received');
     
     // 6. Format response with sources if available
-    const aiResponse = completion.choices[0]?.message?.content || 
-                      "I'm sorry, I couldn't generate a response at this time.";
+    let aiResponse = completion.choices[0]?.message?.content || 
+                   "I'm sorry, I couldn't generate a response at this time.";
+    
+    // Clean up the response
+    aiResponse = aiResponse
+      .replace(/^Sophon: /, '')  // Remove any leading "Sophon: "
+      .trim();
+
 
     // 7. Include sources in the response
     const sources = contextResults.length > 0
@@ -250,12 +363,18 @@ ${context || 'No relevant context found.'}`;
         }))
       : [];
 
+    // Format the final response
     const response = {
       response: aiResponse,
-      sources,
+      sources: sources.map(s => ({
+        ...s,
+        // Truncate source text further if needed for the response
+        text: s.text.length > 150 ? s.text.substring(0, 150) + '...' : s.text
+      })),
       model: completion.model,
       usage: completion.usage,
-      created: completion.created
+      created: completion.created,
+      assistant: 'Sophon'  // Identify the assistant
     };
 
     console.log('5. Response prepared successfully');
