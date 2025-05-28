@@ -26,13 +26,19 @@ async function initializeServices() {
       const requiredEnvVars = {
         'GROQ_API_KEY': process.env.GROQ_API_KEY,
         'PINECONE_API_KEY': process.env.PINECONE_API_KEY,
-        'PINECONE_ENVIRONMENT': process.env.PINECONE_ENVIRONMENT,
+        'PINECONE_ENDPOINT': process.env.PINECONE_ENDPOINT,
         'PINECONE_INDEX': process.env.PINECONE_INDEX,
         'HUGGINGFACE_API_KEY': process.env.HUGGINGFACE_API_KEY
       };
       
       const missingVars = Object.entries(requiredEnvVars)
-        .filter(([_, value]) => !value)
+        .filter(([key, value]) => {
+          // Special handling for PINECONE_ENDPOINT to ensure it's not empty
+          if (key === 'PINECONE_ENDPOINT') {
+            return !value || value.trim() === '';
+          }
+          return !value;
+        })
         .map(([key]) => key);
       
       if (missingVars.length > 0) {
@@ -62,10 +68,10 @@ async function initializeServices() {
         index: process.env.PINECONE_INDEX
       });
       
-      // Initialize Pinecone with the correct configuration
+      // Initialize Pinecone with the API key only
+      // The endpoint will be provided when creating the index
       pinecone = new Pinecone({
-        apiKey: process.env.PINECONE_API_KEY,
-        environment: 'gcp-starter' // This is required but not used for serverless
+        apiKey: process.env.PINECONE_API_KEY
       });
       
       // For serverless, we need to create a custom index configuration
@@ -523,20 +529,45 @@ export default async function handler(req, res) {
   console.log(`[${new Date().toISOString()}] ${req.method} ${req.url}`);
   console.log('Headers:', maskSensitiveInfo(req.headers));
   
-  // Log environment info
+  // Log environment info (without sensitive data)
   const envInfo = {
     NODE_ENV: process.env.NODE_ENV,
     NODE_VERSION: process.version,
     PLATFORM: process.platform,
-    MEMORY_USAGE: process.memoryUsage(),
-    // Don't log actual API keys, just check if they exist
-    HAS_GROQ_KEY: !!process.env.GROQ_API_KEY,
-    HAS_PINECONE_KEY: !!process.env.PINECONE_API_KEY,
-    HAS_HF_KEY: !!process.env.HUGGINGFACE_API_KEY,
-    PINECONE_ENV: process.env.PINECONE_ENVIRONMENT,
-    PINECONE_INDEX: process.env.PINECONE_INDEX
+    // Only show if variables are set, not their values
+    requiredEnvVars: {
+      HAS_GROQ_KEY: !!process.env.GROQ_API_KEY,
+      HAS_PINECONE_KEY: !!process.env.PINECONE_API_KEY,
+      HAS_PINECONE_ENDPOINT: !!process.env.PINECONE_ENDPOINT,
+      HAS_PINECONE_INDEX: !!process.env.PINECONE_INDEX,
+      HAS_HF_KEY: !!process.env.HUGGINGFACE_API_KEY
+    },
+    // Show partial endpoint for debugging (first 10 chars)
+    pineconeEndpointPreview: process.env.PINECONE_ENDPOINT 
+      ? `${process.env.PINECONE_ENDPOINT.substring(0, 10)}...` 
+      : 'not set'
   };
-  console.log('Environment:', envInfo);
+  
+  console.log('Environment Info:', JSON.stringify(envInfo, null, 2));
+  
+  // Check for required environment variables early
+  const missingVars = [
+    !process.env.GROQ_API_KEY && 'GROQ_API_KEY',
+    !process.env.PINECONE_API_KEY && 'PINECONE_API_KEY',
+    !process.env.PINECONE_ENDPOINT && 'PINECONE_ENDPOINT',
+    !process.env.PINECONE_INDEX && 'PINECONE_INDEX',
+    !process.env.HUGGINGFACE_API_KEY && 'HUGGINGFACE_API_KEY'
+  ].filter(Boolean);
+  
+  if (missingVars.length > 0) {
+    const errorMsg = `Missing required environment variables: ${missingVars.join(', ')}`;
+    console.error('❌', errorMsg);
+    return res.status(500).json({
+      error: 'Configuration Error',
+      message: errorMsg,
+      timestamp: new Date().toISOString()
+    });
+  }
 
   // Handle preflight requests
   if (req.method === 'OPTIONS') {
