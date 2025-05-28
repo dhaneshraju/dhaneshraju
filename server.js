@@ -464,13 +464,19 @@ app.post('/api/chat', async (req, res) => {
   }
 });
 
+// Check if we're running in Vercel
+const isVercel = process.env.VERCEL === '1';
+
 // Determine if we're in development mode
-const isDev = process.env.NODE_ENV !== 'production';
+const isDev = !isVercel && process.env.NODE_ENV !== 'production';
 const PORT = process.env.PORT || 3001;
 
-if (isDev) {
+if (isVercel) {
+  // Export the Express app for Vercel serverless functions
+  module.exports = app;
+} else if (isDev) {
+  // Development server with HTTPS
   try {
-    // Try to use HTTPS in development with self-signed certs
     const sslOptions = {
       key: fs.readFileSync(path.join(__dirname, '.cert/key.pem')),
       cert: fs.readFileSync(path.join(__dirname, '.cert/cert.pem')),
@@ -478,7 +484,6 @@ if (isDev) {
 
     const server = https.createServer(sslOptions, app);
     
-    // Handle port in use error by trying the next port
     const startServer = (port) => {
       const onError = (error) => {
         if (error.code === 'EADDRINUSE') {
@@ -506,7 +511,7 @@ if (isDev) {
     startHttpServer(PORT);
   }
 } else {
-  // In production, use HTTP (Vercel will handle HTTPS)
+  // Production HTTP server (not on Vercel)
   startHttpServer(PORT);
 }
 
@@ -515,19 +520,29 @@ function startHttpServer(port) {
   const HOST = '0.0.0.0';
   
   const server = app.listen(port, HOST, () => {
-    console.log(`Server running at http://localhost:${port}`);
-    console.log(`API available at http://localhost:${port}/api/chat`);
-    console.log(`Listening on all network interfaces (${HOST}:${port} and [::]:${port})`);
+    console.log(`Server is running on http://${HOST}:${port}`);
+    console.log(`API available at http://${HOST}:${port}/api/chat`);
   });
 
-  // Handle port in use error for HTTP server
+  // Handle port in use error by trying the next port
   server.on('error', (error) => {
     if (error.code === 'EADDRINUSE') {
-      const altPort = parseInt(port) + 1;
-      console.warn(`Port ${port} is in use, trying port ${altPort}...`);
-      startHttpServer(altPort);
+      const nextPort = parseInt(port) + 1;
+      console.warn(`Port ${port} is in use, trying port ${nextPort}...`);
+      
+      // Try to start server on alternative port
+      const altServer = app.listen(nextPort, HOST, () => {
+        console.log(`Server is running on http://${HOST}:${nextPort}`);
+        console.log(`API available at http://${HOST}:${nextPort}/api/chat`);
+      });
+      
+      // Handle errors on the alternative server
+      altServer.on('error', (altError) => {
+        console.error(`Failed to start server on port ${nextPort}:`, altError);
+        process.exit(1);
+      });
     } else {
-      console.error('HTTP server error:', error);
+      console.error('Server error:', error);
       process.exit(1);
     }
   });
