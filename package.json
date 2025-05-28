@@ -12,7 +12,8 @@
     "start": "node server.js",
     "server": "nodemon server.js",
     "vercel-build": "node vercel-build.js",
-    "vercel-start": "node server.js"
+    "vercel-start": "node server.js",
+    "now-build": "npm run build"
   },
   "dependencies": {
     "@huggingface/inference": "^2.6.4",
