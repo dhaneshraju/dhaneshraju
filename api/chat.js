@@ -46,15 +46,64 @@ async function initializeServices() {
       });
       console.log('✅ Groq initialized successfully');
 
-      // Initialize Pinecone
-      pinecone = new Pinecone({
+      // Initialize Pinecone for serverless environment
+      const pineconeConfig = {
         apiKey: process.env.PINECONE_API_KEY,
-        environment: process.env.PINECONE_ENVIRONMENT
+        // For serverless, we don't need the environment
+        // Instead, we'll use the full endpoint URL
+        endpoint: 'https://gleaming-cypress-0dwhbk1.svc.aped-4627-b74a.pinecone.io',
+        // Add timeout to prevent hanging
+        timeoutMs: 10000
+      };
+      
+      console.log('Initializing Pinecone serverless with config:', {
+        endpoint: pineconeConfig.endpoint,
+        hasApiKey: !!pineconeConfig.apiKey,
+        timeoutMs: pineconeConfig.timeoutMs
       });
       
-      // Test Pinecone connection
-      await pinecone.listIndexes();
-      console.log('✅ Pinecone client initialized and connected');
+      pinecone = new Pinecone(pineconeConfig);
+      
+      // Test Pinecone connection with a simple operation
+      try {
+        console.log('Testing Pinecone serverless connection...');
+        // For serverless, we'll try to describe the index instead of listing all
+        const indexName = process.env.PINECONE_INDEX;
+        if (!indexName) {
+          throw new Error('PINECONE_INDEX environment variable is not set');
+        }
+        
+        // Get a reference to the index
+        const index = pinecone.Index(indexName);
+        
+        // Try a simple operation to test the connection
+        const indexStats = await index.describeIndexStats();
+        
+        console.log('✅ Pinecone serverless connected successfully', {
+          index: indexName,
+          stats: indexStats
+        });
+      } catch (pineconeError) {
+        console.error('❌ Pinecone serverless connection failed:', {
+          message: pineconeError.message,
+          code: pineconeError.code,
+          status: pineconeError.status,
+          stack: pineconeError.stack
+        });
+        
+        // Provide more helpful error messages for common issues
+        if (pineconeError.message.includes('404')) {
+          throw new Error(`Pinecone index not found. Please check your index name (${process.env.PINECONE_INDEX}) is correct.`);
+        } else if (pineconeError.message.includes('401') || pineconeError.message.includes('403')) {
+          throw new Error('Invalid Pinecone API key. Please verify your API key is correct.');
+        } else if (pineconeError.message.includes('timeout')) {
+          throw new Error('Connection to Pinecone timed out. Please check your network connection.');
+        } else if (pineconeError.message.includes('ENOTFOUND')) {
+          throw new Error('Could not resolve Pinecone endpoint. Please check your endpoint URL and network connection.');
+        }
+        
+        throw pineconeError;
+      }
 
       // Initialize Hugging Face for embeddings
       hf = new HfInference(process.env.HUGGINGFACE_API_KEY);
