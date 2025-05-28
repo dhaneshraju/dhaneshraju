@@ -6,24 +6,56 @@ import { HfInference } from '@huggingface/inference';
 let groq;
 let pinecone;
 let hf;
+let servicesInitialized = false;
 
-try {
-  // Initialize Groq
-  groq = new Groq({
-    apiKey: process.env.GROQ_API_KEY || ''
-  });
+// Function to initialize services
+function initializeServices() {
+  if (servicesInitialized) return;
+  
+  try {
+    console.log('Initializing services...');
+    
+    // Check for required environment variables
+    const requiredEnvVars = [
+      'GROQ_API_KEY',
+      'PINECONE_API_KEY',
+      'PINECONE_ENVIRONMENT',
+      'PINECONE_INDEX',
+      'HUGGINGFACE_API_KEY'
+    ];
+    
+    const missingVars = requiredEnvVars.filter(varName => !process.env[varName]);
+    if (missingVars.length > 0) {
+      throw new Error(`Missing required environment variables: ${missingVars.join(', ')}`);
+    }
+    
+    // Initialize Groq
+    groq = new Groq({
+      apiKey: process.env.GROQ_API_KEY
+    });
+    console.log('Groq initialized');
 
-  // Initialize Pinecone
-  pinecone = new Pinecone({
-    apiKey: process.env.PINECONE_API_KEY || '',
-    environment: process.env.PINECONE_ENVIRONMENT || ''
-  });
+    // Initialize Pinecone
+    pinecone = new Pinecone({
+      apiKey: process.env.PINECONE_API_KEY,
+      environment: process.env.PINECONE_ENVIRONMENT
+    });
+    console.log('Pinecone client initialized');
 
-  // Initialize Hugging Face for embeddings
-  hf = new HfInference(process.env.HUGGINGFACE_API_KEY || '');
-} catch (error) {
-  console.error('Failed to initialize services:', error);
+    // Initialize Hugging Face for embeddings
+    hf = new HfInference(process.env.HUGGINGFACE_API_KEY);
+    console.log('Hugging Face initialized');
+    
+    servicesInitialized = true;
+    
+  } catch (error) {
+    console.error('Failed to initialize services:', error);
+    // Don't throw here, we'll handle it when services are actually used
+  }
 }
+
+// Initialize services immediately
+initializeServices();
 
 // Cache for embeddings to avoid redundant API calls
 const embeddingCache = new Map();
@@ -53,13 +85,34 @@ async function getEmbedding(text) {
 // Query Pinecone for relevant context
 async function queryPinecone(query, topK = 3) {
   try {
-    if (!pinecone) {
-      throw new Error('Pinecone client not initialized');
+    // Ensure services are initialized
+    if (!servicesInitialized) {
+      initializeServices();
+      if (!servicesInitialized) {
+        throw new Error('Services failed to initialize. Please check server logs.');
+      }
     }
 
-    const index = pinecone.Index(process.env.PINECONE_INDEX || '');
-    const queryEmbedding = await getEmbedding(query);
+    if (!pinecone) {
+      throw new Error('Pinecone client not properly initialized');
+    }
 
+    const pineconeIndex = process.env.PINECONE_INDEX;
+    if (!pineconeIndex) {
+      throw new Error('Pinecone index not configured');
+    }
+
+    console.log(`Querying Pinecone index: ${pineconeIndex}`);
+    const index = pinecone.Index(pineconeIndex);
+    
+    console.log('Generating embedding for query...');
+    const queryEmbedding = await getEmbedding(query);
+    
+    if (!queryEmbedding || !Array.isArray(queryEmbedding) || queryEmbedding.length === 0) {
+      throw new Error('Failed to generate query embedding');
+    }
+
+    console.log('Sending query to Pinecone...');
     const queryResponse = await index.query({
       vector: queryEmbedding[0],
       topK,
@@ -67,10 +120,21 @@ async function queryPinecone(query, topK = 3) {
       includeValues: false
     });
 
+    console.log(`Pinecone query returned ${queryResponse.matches?.length || 0} matches`);
     return queryResponse.matches || [];
   } catch (error) {
     console.error('Error querying Pinecone:', error);
-    throw new Error('Failed to query knowledge base');
+    
+    // Check for specific error conditions
+    if (error.message.includes('API key')) {
+      throw new Error('Invalid Pinecone API key or environment');
+    } else if (error.message.includes('index not found')) {
+      throw new Error(`Pinecone index not found: ${process.env.PINECONE_INDEX}`);
+    } else if (error.message.includes('connect')) {
+      throw new Error('Could not connect to Pinecone service');
+    }
+    
+    throw new Error(`Knowledge base error: ${error.message}`);
   }
 }
 
@@ -220,8 +284,14 @@ export default async function handler(req, res) {
       }
 
       // Generate response with context
+      console.log('Generating response with context...');
       const response = await generateResponseWithContext(body.messages, userMessage);
+      
+      if (!response) {
+        throw new Error('Failed to generate response');
+      }
 
+      console.log('Response generated successfully');
       // Return the response
       return res.status(200).json({
         success: true,
@@ -231,33 +301,70 @@ export default async function handler(req, res) {
     } catch (error) {
       console.error('Error in /api/chat:', error);
       
+      // Log detailed error information
+      console.error('API Error Details:', {
+        message: error.message,
+        name: error.name,
+        stack: error.stack,
+        code: error.code,
+        statusCode: error.statusCode,
+        response: error.response?.data || 'No response data'
+      });
+
       // Handle different types of errors
-      if (error.message.includes('API key') || error.message.includes('authentication')) {
-        return res.status(401).json({
-          error: 'Authentication error',
-          message: 'Invalid or missing API key',
-          details: process.env.NODE_ENV === 'development' ? error.message : undefined
-        });
-      } else if (error.message.includes('Pinecone') || error.message.includes('knowledge base')) {
-        return res.status(503).json({
-          error: 'Knowledge base unavailable',
-          message: 'Unable to access the knowledge base',
-          details: process.env.NODE_ENV === 'development' ? error.message : undefined
-        });
-      } else if (error.message.includes('embedding')) {
-        return res.status(500).json({
-          error: 'Processing error',
-          message: 'Failed to process the input text',
-          details: process.env.NODE_ENV === 'development' ? error.message : undefined
-        });
-      } else {
-        return res.status(500).json({
-          error: 'Internal server error',
-          message: 'An unexpected error occurred',
-          details: process.env.NODE_ENV === 'development' ? error.message : undefined,
-          stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
-        });
+      let statusCode = 500;
+      let errorType = 'Internal Server Error';
+      let message = 'An unexpected error occurred';
+      let details = {};
+
+      // Authentication errors
+      if (error.message.includes('API key') || 
+          error.message.includes('authentication') ||
+          error.message.includes('unauthorized')) {
+        statusCode = 401;
+        errorType = 'Authentication Error';
+        message = 'Invalid or missing API key';
+      } 
+      // Pinecone/Knowledge base errors
+      else if (error.message.includes('Pinecone') || 
+               error.message.includes('knowledge base') ||
+               error.message.includes('index not found')) {
+        statusCode = 503;
+        errorType = 'Knowledge Base Error';
+        message = 'Unable to access the knowledge base';
+      } 
+      // Embedding/processing errors
+      else if (error.message.includes('embedding') || 
+               error.message.includes('processing') ||
+               error.message.includes('generate')) {
+        statusCode = 422;
+        errorType = 'Processing Error';
+        message = 'Failed to process the input text';
       }
+      // Validation errors
+      else if (error.message.includes('valid') || 
+               error.message.includes('require') ||
+               error.message.includes('missing')) {
+        statusCode = 400;
+        errorType = 'Validation Error';
+        message = 'Invalid request: ' + error.message;
+      }
+
+      // Add debug details in development
+      if (process.env.NODE_ENV === 'development') {
+        details = {
+          message: error.message,
+          stack: error.stack,
+          code: error.code,
+          ...(error.response?.data && { response: error.response.data })
+        };
+      }
+
+      return res.status(statusCode).json({
+        error: errorType,
+        message: message,
+        ...(Object.keys(details).length > 0 && { details })
+      });
     }
   }
 
