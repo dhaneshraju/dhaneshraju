@@ -622,56 +622,46 @@ export default async function handler(req, res) {
     try {
       // Parse request body
       let body = req.body;
-      if (typeof body === 'string') {
+      if (typeof body === 'string' && body) {
         try {
           body = JSON.parse(body);
         } catch (e) {
           console.error('Error parsing JSON:', e);
-          return res.status(400).json({ 
-            error: 'Invalid JSON format',
-            message: 'Please send a valid JSON object',
-            example: {
-              messages: [
-                { role: 'system', content: 'You are a helpful assistant.' },
-                { role: 'user', content: 'Hello, how are you?' }
-              ]
-            }
+          return res.status(400).json({
+            error: 'Invalid JSON',
+            message: 'Request body must be valid JSON',
+            timestamp: new Date().toISOString()
           });
         }
       }
 
-      // Validate request body
-      if (!body.messages || !Array.isArray(body.messages) || body.messages.length === 0) {
-        return res.status(400).json({
-          error: 'Invalid request',
-          message: 'Messages array is required',
-          received: body
-        });
-      }
-
-      // Extract the latest user message
-      const userMessage = body.query || 
-                         body.messages.filter(m => m.role === 'user').pop()?.content ||
-                         body.messages[body.messages.length - 1]?.content ||
-                         '';
-
+      // Get the message from the request
+      const userMessage = body.message || (body.messages && body.messages.find(m => m.role === 'user')?.content);
+      
       if (!userMessage) {
         return res.status(400).json({
           error: 'Invalid request',
-          message: 'No user message found in the request',
-          received: body
+          message: 'No user message found in the request. Send a message in the format: { message: "your message" }',
+          timestamp: new Date().toISOString()
         });
       }
 
       // Generate response with context
-      console.log('Generating response with context...');
-      console.log('Request body:', maskSensitiveInfo(body));
+      console.log('Generating response for message:', userMessage.substring(0, 100) + '...');
       
       try {
-        const response = await generateResponseWithContext(body.messages, userMessage);
+        // Create a simple messages array with just the user message
+        const messages = [
+          {
+            role: 'user',
+            content: userMessage
+          }
+        ];
+        
+        const response = await generateResponseWithContext(messages, userMessage);
         
         if (!response) {
-          throw new Error('generateResponseWithContext returned null or undefined');
+          throw new Error('Failed to generate response');
         }
 
         console.log('Response generated successfully');
@@ -713,6 +703,16 @@ export default async function handler(req, res) {
       let errorType = 'Internal Server Error';
       let message = 'An unexpected error occurred';
       let details = {};
+      
+      // Log the full error for debugging
+      console.error('API Error Details:', {
+        message: error.message,
+        name: error.name,
+        stack: error.stack,
+        code: error.code,
+        status: error.status,
+        response: error.response?.data || 'No response data'
+      });
 
       // Authentication errors
       if (error.message.includes('API key') || 
