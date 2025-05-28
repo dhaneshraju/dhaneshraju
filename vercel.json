@@ -12,6 +12,13 @@
   ],
   "routes": [
     {
+      "src": "/test-api",
+      "dest": "/test-api.html",
+      "headers": {
+        "Content-Type": "text/html"
+      }
+    },
+    {
       "src": "/api/chat",
       "dest": "/api/chat.js"
     },
@@ -27,12 +34,8 @@
       }
     },
     {
-      "src": "^/(.*\\.(?:js|css|png|jpg|jpeg|gif|ico|svg|woff|woff2|ttf|eot))$",
+      "src": "^/(.*\\.(?:js|css|png|jpg|jpeg|gif|ico|svg|woff|woff2|ttf|eot|html))$",
       "dest": "/$1"
-    },
-    {
-      "src": "/test-api.html",
-      "dest": "/test-api.html"
     },
     {
       "src": "^/(.*)",
