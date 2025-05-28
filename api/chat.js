@@ -54,7 +54,36 @@ function initializeServices() {
   }
 }
 
+// Helper function to mask sensitive information in logs
+function maskSensitiveInfo(obj) {
+  if (typeof obj !== 'object' || obj === null) return obj;
+  
+  const masked = { ...obj };
+  const sensitiveKeys = ['key', 'token', 'secret', 'password', 'apiKey'];
+  
+  Object.keys(masked).forEach(key => {
+    const lowerKey = key.toLowerCase();
+    if (sensitiveKeys.some(sk => lowerKey.includes(sk))) {
+      masked[key] = '***MASKED***';
+    } else if (typeof masked[key] === 'object') {
+      masked[key] = maskSensitiveInfo(masked[key]);
+    }
+  });
+  
+  return masked;
+}
+
 // Initialize services immediately
+console.log('Initializing services with environment:', {
+  NODE_ENV: process.env.NODE_ENV,
+  PINECONE_ENVIRONMENT: process.env.PINECONE_ENVIRONMENT ? '***SET***' : 'MISSING',
+  PINECONE_INDEX: process.env.PINECONE_INDEX ? '***SET***' : 'MISSING',
+  // Don't log actual API keys, just confirm they exist
+  GROQ_API_KEY: process.env.GROQ_API_KEY ? '***SET***' : 'MISSING',
+  PINECONE_API_KEY: process.env.PINECONE_API_KEY ? '***SET***' : 'MISSING',
+  HUGGINGFACE_API_KEY: process.env.HUGGINGFACE_API_KEY ? '***SET***' : 'MISSING'
+});
+
 initializeServices();
 
 // Cache for embeddings to avoid redundant API calls
@@ -140,9 +169,18 @@ async function queryPinecone(query, topK = 3) {
 
 // Generate response using Groq with context from Pinecone
 async function generateResponseWithContext(messages, query) {
+  console.log('generateResponseWithContext called with:', { 
+    messagesLength: messages?.length,
+    queryLength: query?.length,
+    groqInitialized: !!groq,
+    pineconeInitialized: !!pinecone,
+    hfInitialized: !!hf
+  });
+
   try {
-    // 1. Get relevant context from Pinecone
+    console.log('1. Querying Pinecone for context...');
     const contextResults = await queryPinecone(query);
+    console.log(`Pinecone returned ${contextResults.length} context results`);
     
     // 2. Format the context for the prompt
     let context = '';
@@ -150,12 +188,13 @@ async function generateResponseWithContext(messages, query) {
       context = contextResults
         .map((result, i) => {
           const source = result.metadata?.source || 'Unknown source';
-          const text = result.metadata?.text || result.metadata?.content || '';
+          const text = (result.metadata?.text || result.metadata?.content || '').substring(0, 200) + '...';
           return `[${i + 1}] Source: ${source}\n${text}`;
         })
         .join('\n\n');
     }
 
+    console.log('2. Creating system prompt with context...');
     // 3. Create system prompt with context
     const systemPrompt = `You are a helpful AI assistant. Use the following context to answer the user's question. If you don't know the answer, just say that you don't know, don't try to make up an answer.
 
@@ -169,6 +208,13 @@ ${context || 'No relevant context found.'}`;
       { role: 'user', content: query }
     ];
 
+    console.log('3. Sending request to Groq API...');
+    console.log('Groq messages structure:', {
+      systemPromptLength: systemPrompt.length,
+      userMessagesCount: messages.filter(m => m.role === 'user').length,
+      totalMessages: groqMessages.length
+    });
+
     // 5. Call Groq API
     const completion = await groq.chat.completions.create({
       messages: groqMessages,
@@ -177,8 +223,19 @@ ${context || 'No relevant context found.'}`;
       max_tokens: 1024,
       top_p: 1,
       stream: false,
+    }).catch(groqError => {
+      console.error('Groq API error:', {
+        status: groqError?.status,
+        statusText: groqError?.statusText,
+        message: groqError?.message,
+        code: groqError?.code,
+        response: groqError?.response?.data
+      });
+      throw new Error(`Groq API error: ${groqError.message}`);
     });
 
+    console.log('4. Groq API response received');
+    
     // 6. Format response with sources if available
     const aiResponse = completion.choices[0]?.message?.content || 
                       "I'm sorry, I couldn't generate a response at this time.";
@@ -186,21 +243,37 @@ ${context || 'No relevant context found.'}`;
     // 7. Include sources in the response
     const sources = contextResults.length > 0
       ? contextResults.map(r => ({
-          text: r.metadata?.text || r.metadata?.content || '',
+          text: (r.metadata?.text || r.metadata?.content || '').substring(0, 500) + '...',
           source: r.metadata?.source || 'Unknown source',
-          score: r.score
+          score: r.score,
+          id: r.id
         }))
       : [];
 
-    return {
+    const response = {
       response: aiResponse,
       sources,
       model: completion.model,
       usage: completion.usage,
       created: completion.created
     };
+
+    console.log('5. Response prepared successfully');
+    return response;
   } catch (error) {
-    console.error('Error in generateResponseWithContext:', error);
+    console.error('Error in generateResponseWithContext:', {
+      name: error.name,
+      message: error.message,
+      stack: error.stack,
+      code: error.code,
+      ...(error.response && { 
+        response: {
+          status: error.response.status,
+          statusText: error.response.statusText,
+          data: error.response.data
+        }
+      })
+    });
     throw error;
   }
 }
@@ -211,9 +284,23 @@ export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
   res.setHeader('Access-Control-Max-Age', '86400'); // 24 hours
+  
+  // Add request logging
+  console.log('\n=== NEW REQUEST ===');
+  console.log(`[${new Date().toISOString()}] ${req.method} ${req.url}`);
+  console.log('Headers:', maskSensitiveInfo(req.headers));
+  
+  // Log environment info
+  console.log('Environment:', {
+    NODE_ENV: process.env.NODE_ENV,
+    NODE_VERSION: process.version,
+    PLATFORM: process.platform,
+    MEMORY_USAGE: process.memoryUsage()
+  });
 
   // Handle preflight requests
   if (req.method === 'OPTIONS') {
+    console.log('Handling OPTIONS preflight request');
     return res.status(200).end();
   }
 
@@ -285,18 +372,35 @@ export default async function handler(req, res) {
 
       // Generate response with context
       console.log('Generating response with context...');
-      const response = await generateResponseWithContext(body.messages, userMessage);
+      console.log('Request body:', maskSensitiveInfo(body));
       
-      if (!response) {
-        throw new Error('Failed to generate response');
-      }
+      try {
+        const response = await generateResponseWithContext(body.messages, userMessage);
+        
+        if (!response) {
+          throw new Error('generateResponseWithContext returned null or undefined');
+        }
 
-      console.log('Response generated successfully');
-      // Return the response
-      return res.status(200).json({
-        success: true,
-        ...response
-      });
+        console.log('Response generated successfully');
+        console.log('Response preview:', {
+          responseLength: response.response?.length,
+          sourcesCount: response.sources?.length || 0
+        });
+        
+        // Return the response
+        return res.status(200).json({
+          success: true,
+          ...response
+        });
+      } catch (genError) {
+        console.error('Error in generateResponseWithContext:', {
+          message: genError.message,
+          stack: genError.stack,
+          name: genError.name,
+          code: genError.code
+        });
+        throw genError; // Re-throw to be caught by the outer catch
+      }
 
     } catch (error) {
       console.error('Error in /api/chat:', error);
