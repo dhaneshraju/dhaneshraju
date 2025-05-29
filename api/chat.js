@@ -42,31 +42,22 @@ async function initializeClients() {
       console.log(`[API] Initializing clients (attempt ${attempt}/${maxRetries})`);
       
       // Initialize Groq
-      groq = new Groq({ 
-        apiKey: groqApiKey,
-        fetch: (url, options) => {
-          return fetch(url, {
-            ...options,
-            signal: AbortSignal.timeout(10000) // 10 second timeout
-          });
-        }
+      groq = new Groq({
+        auth: groqApiKey,
+        timeout: 10000
       });
 
       // Initialize Pinecone client with just the API key as a string
-      pinecone = new Pinecone(pineconeApiKey);
+      pinecone = new Pinecone({
+        apiKey: pineconeApiKey,
+        environment: process.env.PINECONE_ENVIRONMENT
+      });
       
       // Get the index reference during initialization
       pineconeIndex = pinecone.Index(pineconeIndexName);
 
       // Initialize Hugging Face
-      hf = new HfInference(hfApiKey, {
-        fetch: (url, options) => {
-          return fetch(url, {
-            ...options,
-            signal: AbortSignal.timeout(10000) // 10 second timeout
-          });
-        }
-      });
+      hf = new HfInference(hfApiKey);
 
       
       console.log('[API] All clients initialized successfully');
