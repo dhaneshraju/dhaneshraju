@@ -534,7 +534,8 @@ export default async function handler(req, res) {
     console.log(`[${requestId}] Found ${searchResults.length} relevant context items. Generating response...`);
     const responseText = await generateResponse(userQuery, searchResults);
 
-    return res.json({
+    // Create a response that matches the Groq API format
+    const response = {
       id: `chatcmpl-${Date.now()}`,
       object: 'chat.completion',
       created: Math.floor(Date.now() / 1000),
@@ -545,14 +546,19 @@ export default async function handler(req, res) {
           role: 'assistant',
           content: responseText
         },
-        finish_reason: 'stop'
+        finish_reason: 'stop',
+        logprobs: null
       }],
       usage: {
-        prompt_tokens: 0,  // Add actual token count if needed
-        completion_tokens: 0,
-        total_tokens: 0
-      }
-    });
+        prompt_tokens: Math.ceil(userQuery.length / 4),  // Rough estimate
+        completion_tokens: Math.ceil(responseText.length / 4),  // Rough estimate
+        total_tokens: Math.ceil((userQuery.length + responseText.length) / 4)  // Rough estimate
+      },
+      system_fingerprint: `fp_${Math.random().toString(36).substring(2, 10)}`
+    };
+
+    console.log(`[${requestId}] Sending response with ${response.usage.completion_tokens} completion tokens`);
+    return res.json(response);
 
   } catch (error) {
     console.error(`[${requestId}] Error:`, error);
