@@ -8,7 +8,7 @@ const groqApiKey = process.env.VITE_GROQ_API_KEY || process.env.GROQ_API_KEY;
 const pineconeApiKey = process.env.VITE_PINECONE_API_KEY || process.env.PINECONE_API_KEY;
 const pineconeEnvironment = process.env.VITE_PINECONE_ENVIRONMENT || process.env.PINECONE_ENVIRONMENT || 'us-west1-gcp';
 const hfApiKey = process.env.VITE_HUGGINGFACE_API_KEY || process.env.HUGGINGFACE_API_KEY;
-const pineconeIndexName = process.env.VITE_PINECONE_INDEX || process.env.PINECONE_INDEX;
+const pineconeIndexName = process.env.VITE_PINECONE_INDEX || 'gleaming-cypress';
 
 // Update the validation object
 const requiredVars = {
@@ -277,7 +277,11 @@ const searchPinecone = async (query, topK = 3) => {
           topK,
           includeMetadata: true,
           includeValues: false,
-          filter: {}
+          filter: {
+            // Add a default filter to satisfy the API requirement
+            // This can be adjusted based on your actual data structure
+            source: { $eq: 'portfolio' } // Example filter
+          }
         });
         
         console.log(`[API] Successfully queried Pinecone. Found ${queryResponse.matches?.length || 0} matches`);
