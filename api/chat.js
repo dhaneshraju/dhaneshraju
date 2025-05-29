@@ -4,7 +4,11 @@ import Groq from 'groq-sdk';
 import { HfInference } from '@huggingface/inference';
 
 const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
-const pinecone = new Pinecone({ apiKey: process.env.PINECONE_API_KEY });
+const pinecone = new Pinecone({
+  apiKey: process.env.PINECONE_API_KEY,
+  environment: process.env.PINECONE_ENVIRONMENT
+});
+
 const hf = new HfInference(process.env.HUGGINGFACE_API_KEY);
 const indexName = process.env.PINECONE_INDEX;
 
