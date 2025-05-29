@@ -54,7 +54,7 @@ async function initializeClients() {
       // Initialize Pinecone client for serverless index
       pinecone = new Pinecone({
         apiKey: pineconeApiKey,
-        indexHost: pineconeHost, // full URL like https://gleaming-cypress-xxx.pinecone.io
+        environment: pineconeHost.replace(/^https?:\/\//, '') // Remove http:// or https:// from the host
       });
 
       // Initialize Hugging Face
