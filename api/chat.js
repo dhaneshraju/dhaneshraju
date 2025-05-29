@@ -346,10 +346,28 @@ const searchPinecone = async (query, topK = 3) => {
 
 async function generateResponse(query, context) {
   try {
-    const formattedContext = context.map((item, i) => 
-      `--- Source ${i + 1} ---\n${item.metadata.text}`
-    ).join('\n\n');
+    // Log the incoming context for debugging
+    console.log('[API] Received context items:', context.length);
+    context.forEach((item, i) => {
+      console.log(`[API] Context item ${i + 1}:`, {
+        score: item.score,
+        type: item.metadata?.documentType || 'unknown',
+        textLength: item.metadata?.text?.length || 0,
+        textPreview: item.metadata?.text?.substring(0, 100) + '...' || 'No content'
+      });
+    });
 
+    // Format context with scores and source information
+    const formattedContext = context
+      .filter(item => item.metadata?.text?.trim()) // Filter out empty content
+      .map((item, i) => 
+        `--- Context Item ${i + 1} (Relevance: ${(item.score * 100).toFixed(1)}%) ---\n` +
+        `Source: ${item.metadata?.documentType || 'General'}\n` +
+        `${item.metadata?.text || 'No content'}`
+      )
+      .join('\n\n');
+
+    console.log('[API] Total context length:', formattedContext.length);
     let systemPrompt;
     
     if (context.length > 0) {
@@ -379,20 +397,44 @@ If you don't know something specific, say you don't have that information but ca
       console.log('[API] No context available, using general knowledge');
     }
 
-    const completion = await groq.chat.completions.create({
-      messages: [
-        { role: 'system', content: systemPrompt },
-        { role: 'user', content: query }
-      ],
-      model: 'llama3-70b-8192',
-      temperature: 0.7,
-      max_tokens: 2000,
-      top_p: 0.9,
-      frequency_penalty: 0.1,
-      presence_penalty: 0.1
-    });
+    try {
+      console.log('[API] Sending request to Groq with model: llama3-70b-8192');
+      console.log('[API] System prompt length:', systemPrompt.length);
+      
+      const completion = await groq.chat.completions.create({
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: query }
+        ],
+        model: 'llama3-70b-8192',
+        temperature: 0.7,
+        max_tokens: 2000,
+        top_p: 0.9,
+        frequency_penalty: 0.1,
+        presence_penalty: 0.1
+      });
 
-    return completion.choices[0]?.message?.content || "I couldn't generate a response based on the available information.";
+      console.log('[API] Received response from Groq');
+      
+      if (!completion.choices || completion.choices.length === 0) {
+        console.error('[API] No choices in Groq response');
+        return "I'm sorry, I couldn't generate a response. Please try again later.";
+      }
+
+      const response = completion.choices[0]?.message?.content;
+      console.log('[API] Generated response length:', response?.length || 0);
+      
+      return response || "I'm sorry, I couldn't generate a response based on the available information.";
+      
+    } catch (error) {
+      console.error('[API] Error in Groq API call:', {
+        message: error.message,
+        code: error.code,
+        status: error.status,
+        response: error.response?.data
+      });
+      return "I'm sorry, I encountered an error while processing your request. Please try again later.";
+    }
 
   } catch (error) {
     console.error('Error generating response:', error);
