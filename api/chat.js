@@ -6,6 +6,7 @@ import { HfInference } from '@huggingface/inference';
 // Initialize with environment variables
 const groqApiKey = process.env.VITE_GROQ_API_KEY;
 const pineconeApiKey = process.env.VITE_PINECONE_API_KEY;
+const pineconeEnvironment = process.env.VITE_PINECONE_ENVIRONMENT || 'gcp-starter';
 const hfApiKey = process.env.VITE_HUGGINGFACE_API_KEY;
 const pineconeIndexName = process.env.VITE_PINECONE_INDEX;
 
@@ -15,7 +16,10 @@ let groq, pinecone, hf;
 // Initialize with error handling
 try {
   groq = new Groq({ apiKey: groqApiKey });
-  pinecone = new Pinecone({ apiKey: pineconeApiKey });
+  pinecone = new Pinecone({ 
+    apiKey: pineconeApiKey,
+    environment: pineconeEnvironment
+  });
   hf = new HfInference(hfApiKey);
   console.log('[API] Clients initialized successfully');
 } catch (error) {
@@ -45,7 +49,7 @@ const PINECONE_QUERY_TIMEOUT = 20000; // 20 seconds
 const GROQ_MODEL = 'llama3-70b-8192';
 // Fallback model in case the primary is not available
 const GROQ_MODEL_FALLBACK = 'llama3-8b-8192';
-const GROQ_TEMPERATURE = 0.7;
+const GROQ_TEMPERATURE = 0.5;
 const GROQ_MAX_TOKENS = 2000;
 const GROQ_TIMEOUT = 30000; // 30 seconds
 
