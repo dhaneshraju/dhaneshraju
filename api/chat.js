@@ -4,19 +4,19 @@ import Groq from 'groq-sdk';
 import { HfInference } from '@huggingface/inference';
 
 // Initialize with environment variables
-const groqApiKey = process.env.VITE_GROQ_API_KEY;
-const pineconeApiKey = process.env.VITE_PINECONE_API_KEY;
-const pineconeHost = process.env.VITE_PINECONE_HOST;  // <-- NEW env var: full host URL
-const hfApiKey = process.env.VITE_HUGGINGFACE_API_KEY;
-const pineconeIndexName = process.env.VITE_PINECONE_INDEX;
+const groqApiKey = process.env.GROQ_API_KEY;
+const pineconeApiKey = process.env.PINECONE_API_KEY;
+const pineconeHost = process.env.PINECONE_HOST;
+const hfApiKey = process.env.HUGGINGFACE_API_KEY;
+const pineconeIndexName = process.env.PINECONE_INDEX;
 
-// Validate required environment variables
+// Update the validation object
 const requiredVars = {
-  'VITE_GROQ_API_KEY': groqApiKey,
-  'VITE_PINECONE_API_KEY': pineconeApiKey,
-  'VITE_PINECONE_INDEX': pineconeIndexName,
-  'VITE_PINECONE_HOST': pineconeHost,
-  'VITE_HUGGINGFACE_API_KEY': hfApiKey
+  'GROQ_API_KEY': groqApiKey,
+  'PINECONE_API_KEY': pineconeApiKey,
+  'PINECONE_INDEX': pineconeIndexName,
+  'PINECONE_HOST': pineconeHost,
+  'HUGGINGFACE_API_KEY': hfApiKey
 };
 
 const missingVars = Object.entries(requiredVars)
