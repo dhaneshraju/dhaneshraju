@@ -489,13 +489,7 @@ const VoiceAssistant = ({ isOpen, onClose, inputMode, onInputModeChange, onAISpe
   if (!isOpen) return null;
 
   return (
-    <div className="fixed top-20 right-6 w-80 bg-gradient-to-br from-gray-900 to-gray-800 text-white rounded-xl shadow-2xl overflow-hidden transition-all duration-300 transform z-50" style={{ 
-      maxHeight: 'min(80vh, 500px)',
-      width: 'calc(100% - 3rem)',
-      maxWidth: '24rem',
-      right: '1.5rem',
-      top: '5rem'
-    }}>
+    <div className="fixed right-6 top-20 w-80 max-w-[calc(100%-3rem)] h-[calc(100vh-6rem)] max-h-[500px] bg-gradient-to-br from-gray-900 to-gray-800 text-white rounded-xl shadow-2xl overflow-hidden transition-all duration-300 transform z-50 flex flex-col">
       {/* Header */}
       <div className="bg-gradient-to-r from-blue-600 to-blue-800 p-4 flex justify-between items-center">
         <div className="flex items-center space-x-3">
@@ -514,7 +508,7 @@ const VoiceAssistant = ({ isOpen, onClose, inputMode, onInputModeChange, onAISpe
       </div>
 
       {/* Messages */}
-      <div className="overflow-y-auto p-3 space-y-3 bg-gray-900/50" style={{ height: '360px' }}>
+      <div className="flex-1 overflow-y-auto p-3 space-y-3 bg-gray-900/50">
         {messages.length === 0 && !transcript ? (
           <div className="h-full flex flex-col items-center justify-center text-center p-6 text-gray-400">
             <Bot size={32} className="mb-3 text-blue-400" />
