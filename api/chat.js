@@ -276,44 +276,40 @@ const searchPinecone = async (query, topK = 3) => {
       
       // Query the index using the latest API for v6+
       try {
-        // First try with a more permissive query
-        let queryResponse;
+        // Query without any filter
+        const queryResponse = await pineconeIndex.query({
+          vector: queryEmbedding,
+          topK: Math.min(topK * 2, 10), // Get more results to increase chances of matches
+          includeMetadata: true,
+          includeValues: false
+        });
         
-        try {
-          // Try with a filter if you have specific metadata
-          queryResponse = await pineconeIndex.query({
-            vector: queryEmbedding,
-            topK: Math.min(topK * 2, 10), // Get more results to increase chances of matches
-            includeMetadata: true,
-            includeValues: false,
-            filter: {}
-          });
-          
-          // If no results, try without any filter
-          if (!queryResponse.matches || queryResponse.matches.length === 0) {
-            queryResponse = await pineconeIndex.query({
-              vector: queryEmbedding,
-              topK: Math.min(topK * 2, 10),
-              includeMetadata: true,
-              includeValues: false
-            });
-          }
-        } catch (filterError) {
-          console.log('[API] Error with filtered query, trying without filter:', filterError.message);
-          // If filtered query fails, try without any filter
-          queryResponse = await pineconeIndex.query({
-            vector: queryEmbedding,
-            topK: Math.min(topK * 2, 10),
-            includeMetadata: true,
-            includeValues: false
-          });
+        if (!queryResponse.matches || queryResponse.matches.length === 0) {
+          console.log('[API] No matches found in Pinecone');
+          return [];
         }
+
+        // Log match details for debugging
+        console.log(`[API] Found ${queryResponse.matches.length} matches`);
+        queryResponse.matches.forEach((match, i) => {
+          console.log(`[API] Match ${i + 1}:`);
+          console.log(`  Score: ${match.score}`);
+          console.log(`  Content Type: ${match.metadata?.contentType || 'N/A'}`);
+          console.log(`  Document Type: ${match.metadata?.documentType || 'N/A'}`);
+          console.log(`  Text preview: ${match.metadata?.text?.substring(0, 100)}...`);
+        });
+
+        // Filter out low-scoring matches
+        const MIN_SCORE = 0.6; // Adjust this threshold as needed
+        const filteredMatches = queryResponse.matches.filter(match => match.score >= MIN_SCORE);
         
-        console.log(`[API] Successfully queried Pinecone. Found ${queryResponse.matches?.length || 0} matches`);
-        if (queryResponse.matches && queryResponse.matches.length > 0) {
-          console.log('[API] First match metadata keys:', Object.keys(queryResponse.matches[0].metadata || {}));
+        if (filteredMatches.length === 0) {
+          console.log(`[API] No matches met the minimum score threshold of ${MIN_SCORE}`);
+          return [];
         }
-        return queryResponse.matches || [];
+
+        console.log(`[API] Returning ${filteredMatches.length} matches after filtering`);
+        return filteredMatches;
       } catch (error) {
         console.error('[API] Error querying Pinecone:', {
           message: error.message,
@@ -348,30 +344,55 @@ const searchPinecone = async (query, topK = 3) => {
   }
 };
 
-// Generate chat response using Groq with context
 async function generateResponse(query, context) {
   try {
     const formattedContext = context.map((item, i) => 
       `--- Source ${i + 1} ---\n${item.metadata.text}`
     ).join('\n\n');
 
-    const systemPrompt = `You are a helpful AI assistant that helps answer questions based on the provided context.
-- If the answer isn't in the context, say you don't know.
-- Keep responses concise (2-3 sentences).
-- Always respond in first person as if you are the person being asked about.
-- Focus on the most relevant information from the context.`;
+    let systemPrompt;
+    
+    if (context.length > 0) {
+      // Group context by document type for better organization
+      const contextByType = context.reduce((acc, item) => {
+        const type = item.metadata?.documentType || 'general';
+        if (!acc[type]) acc[type] = [];
+        acc[type].push(item.metadata?.text || '');
+        return acc;
+      }, {});
+      
+      // Format the context for the prompt
+      const contextSections = Object.entries(contextByType).map(([type, texts]) => {
+        return `## ${type.charAt(0).toUpperCase() + type.slice(1)}\n${texts.join('\n\n')}`;
+      }).join('\n\n');
+      
+      systemPrompt = `You are Dhanesh Raju's AI assistant. Use the following context to answer the user's question about Dhanesh Raju. 
+If the information is not in the context, say you don't have that specific information but can answer other questions about Dhanesh.
 
-    const response = await groq.chat.completions.create({
+Context:
+${contextSections}`;
+      
+      console.log('[API] Using context for response generation');
+    } else {
+      systemPrompt = `You are Dhanesh Raju's AI assistant. Answer questions about Dhanesh Raju based on your general knowledge. 
+If you don't know something specific, say you don't have that information but can help with other questions about Dhanesh.`;
+      console.log('[API] No context available, using general knowledge');
+    }
+
+    const completion = await groq.chat.completions.create({
       messages: [
-        { role: "system", content: systemPrompt },
-        { role: "user", content: `Context:\n${formattedContext}\n\nQuestion: ${query}\n\nAnswer:` }
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: query }
       ],
-      model: "llama3-70b-8192",
-      temperature: 0.5,
-      max_tokens: 500
+      model: 'mixtral-8x7b-32768',
+      temperature: 0.7,
+      max_tokens: 2000,
+      top_p: 0.9,
+      frequency_penalty: 0.1,
+      presence_penalty: 0.1
     });
 
-    return response.choices[0]?.message?.content || "I couldn't generate a response based on the available information.";
+    return completion.choices[0]?.message?.content || "I couldn't generate a response based on the available information.";
 
   } catch (error) {
     console.error('Error generating response:', error);
