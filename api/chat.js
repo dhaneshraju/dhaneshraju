@@ -527,56 +527,32 @@ export default async function handler(req, res) {
         max_tokens: 1000
       });
 
+      const responseText = fallbackResponse.choices[0]?.message?.content || 
+                         "I'm sorry, I couldn't generate a response based on the available information.";
+
       return res.json({
-        id: fallbackResponse.id,
-        object: 'chat.completion',
-        created: Math.floor(Date.now() / 1000),
-        model: fallbackResponse.model,
-        choices: fallbackResponse.choices.map(choice => ({
-          index: choice.index,
-          message: {
-            role: choice.message.role,
-            content: choice.message.content
-          },
-          finish_reason: choice.finish_reason
-        })),
-        usage: fallbackResponse.usage
+        response: responseText,
+        sources: []
       });
     }
 
     console.log(`[${requestId}] Found ${searchResults.length} relevant context items. Generating response...`);
     const responseText = await generateResponse(userQuery, searchResults);
 
-    // Create a response that matches the Groq API format
+    // Create response in the format expected by the frontend
     const response = {
-      id: `chatcmpl-${Date.now()}`,
-      object: 'chat.completion',
-      created: Math.floor(Date.now() / 1000),
-      model: 'llama3-70b-8192',
-      choices: [{
-        index: 0,
-        message: {
-          role: 'assistant',
-          content: responseText
-        },
-        finish_reason: 'stop',
-        logprobs: null
-      }],
-      usage: {
-        prompt_tokens: Math.ceil(userQuery.length / 4),  // Rough estimate
-        completion_tokens: Math.ceil(responseText.length / 4),  // Rough estimate
-        total_tokens: Math.ceil((userQuery.length + responseText.length) / 4)  // Rough estimate
-      },
-      system_fingerprint: `fp_${Math.random().toString(36).substring(2, 10)}`
+      response: responseText,
+      sources: (searchResults || []).map((result, index) => ({
+        source: result.metadata?.documentType || 'Document',
+        url: result.metadata?.url || '#',
+        text: result.metadata?.text?.substring(0, 200) + '...' || 'No content',
+        score: result.score
+      })).filter(source => source.text !== 'No content')
     };
 
-    console.log(`[${requestId}] Sending response with ${response.usage.completion_tokens} completion tokens`);
-    console.log(`[${requestId}] Response content:`, JSON.stringify({
-      id: response.id,
-      model: response.model,
-      content: response.choices[0].message.content.substring(0, 100) + '...',
-      finish_reason: response.choices[0].finish_reason
-    }, null, 2));
+    console.log(`[${requestId}] Sending response with ${responseText.length} characters`);
+    console.log(`[${requestId}] Response preview: ${responseText.substring(0, 100)}...`);
+    console.log(`[${requestId}] Sources:`, response.sources);
     
     return res.json(response);
 
