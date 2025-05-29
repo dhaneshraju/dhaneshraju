@@ -6,7 +6,7 @@ import { HfInference } from '@huggingface/inference';
 const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
 const pinecone = new Pinecone({
   apiKey: process.env.PINECONE_API_KEY,
-  environment: process.env.PINECONE_ENVIRONMENT
+  environment: process.env.PINECONE_ENVIRONMENT || 'gcp-starter'  // Default to gcp-starter if not specified
 });
 
 const hf = new HfInference(process.env.HUGGINGFACE_API_KEY);
