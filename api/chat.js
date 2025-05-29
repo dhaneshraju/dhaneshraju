@@ -299,12 +299,22 @@ const searchPinecone = async (query, topK = 3) => {
           console.log(`  Text preview: ${match.metadata?.text?.substring(0, 100)}...`);
         });
 
-        // Filter out low-scoring matches
-        const MIN_SCORE = 0.6; // Adjust this threshold as needed
-        const filteredMatches = queryResponse.matches.filter(match => match.score >= MIN_SCORE);
+        // Filter out low-scoring matches - adjusted threshold to be more permissive
+        const MIN_SCORE = 0.5; // Lowered from 0.6 to 0.5 to get more matches
+        const MAX_RESULTS = 4; // Maximum number of results to return
+        
+        const filteredMatches = queryResponse.matches
+          .filter(match => match.score >= MIN_SCORE)
+          .sort((a, b) => b.score - a.score) // Sort by score descending
+          .slice(0, MAX_RESULTS); // Take top N results
         
         if (filteredMatches.length === 0) {
           console.log(`[API] No matches met the minimum score threshold of ${MIN_SCORE}`);
+          // Return the top match even if below threshold, if no good matches found
+          if (queryResponse.matches.length > 0) {
+            console.log('[API] Returning the top match despite low score');
+            return [queryResponse.matches[0]];
+          }
           return [];
         }
 
@@ -407,7 +417,7 @@ If you don't know something specific, say you don't have that information but ca
           { role: 'user', content: query }
         ],
         model: 'llama3-70b-8192',
-        temperature: 0.7,
+        temperature: 0.5,
         max_tokens: 2000,
         top_p: 0.9,
         frequency_penalty: 0.1,
@@ -509,8 +519,8 @@ export default async function handler(req, res) {
     const userQuery = lastUserMessage.content;
     console.log(`[${requestId}] Processing query: "${userQuery}"`);
 
-    // Search Pinecone
-    const searchResults = await searchPinecone(userQuery, 3);
+    // Search Pinecone - increasing topK to 5 and adjusting the minimum score
+    const searchResults = await searchPinecone(userQuery, 5); // Increased from 3 to 5
 
     if (searchResults.length === 0) {
       console.log(`[${requestId}] No relevant context found. Falling back to Groq general chat.`);
@@ -523,7 +533,7 @@ export default async function handler(req, res) {
           }
         ],
         model: 'llama3-8b-8192',
-        temperature: 0.7,
+        temperature: 0.5,
         max_tokens: 1000
       });
 
