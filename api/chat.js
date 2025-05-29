@@ -57,12 +57,12 @@ async function initializeClients() {
         apiKey: pineconeApiKey,
         environment: pineconeEnvironment,
         // Add custom fetch with timeout
-        fetch: (url, options) => {
-          return fetch(url, {
-            ...options,
-            signal: AbortSignal.timeout(10000) // 10 second timeout
-          });
-        }
+        // fetch: (url, options) => {
+        //   return fetch(url, {
+        //     ...options,
+        //     signal: AbortSignal.timeout(10000) // 10 second timeout
+        //   });
+        // }
       });
 
       // Initialize Hugging Face
