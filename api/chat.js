@@ -47,15 +47,35 @@ async function initializeClients() {
         timeout: 10000
       });
 
-      // Initialize Pinecone client with environment
+      // Initialize Pinecone client with the latest API (v6+)
       pinecone = new Pinecone({
         apiKey: pineconeApiKey,
-        environment: pineconeEnvironment
+        environment: pineconeEnvironment,
+        // Disable additional properties check
+        additionalProperties: false
       });
       
-      // Get the index reference during initialization
-      pineconeIndex = pinecone.Index(pineconeIndexName);
-      console.log(`[API] Pinecone initialized with index: ${pineconeIndexName}, environment: ${pineconeEnvironment}`);
+      if (!pinecone) {
+        throw new Error('Failed to initialize Pinecone client');
+      }
+      
+      try {
+        // Get the index reference during initialization
+        pineconeIndex = pinecone.index(pineconeIndexName);
+        console.log(`[API] Pinecone initialized with index: ${pineconeIndexName}, environment: ${pineconeEnvironment}`);
+        
+        // Test the Pinecone connection
+        try {
+          await pineconeIndex.describeIndexStats();
+          console.log('[API] Successfully connected to Pinecone index');
+        } catch (error) {
+          console.error('[API] Failed to connect to Pinecone index:', error.message);
+          throw new Error(`Failed to connect to Pinecone index: ${error.message}`);
+        }
+      } catch (error) {
+        console.error('[API] Error initializing Pinecone index:', error.message);
+        throw new Error(`Failed to initialize Pinecone index: ${error.message}`);
+      }
 
       // Initialize Hugging Face
       hf = new HfInference(hfApiKey);
@@ -136,43 +156,65 @@ const getEmbedding = async (text, attempt = 1) => {
   }
 
   try {
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), EMBEDDING_TIMEOUT);
-
+    console.log('Generating embedding for text...');
+    
+    // Clean and normalize the input text
+    const cleanText = text
+      .replace(/\s+/g, ' ')  // Replace multiple spaces with single space
+      .trim()
+      .substring(0, 1000);  // Limit input length
+    
+    // Use the latest HF inference API
     const response = await hf.featureExtraction({
-      model: EMBEDDING_MODEL,
-      inputs: clean,
-      options: { wait_for_model: true, use_cache: true },
-      fetch: (url, options) => fetch(url, {
-        ...options,
-        signal: controller.signal,
-        headers: {
-          ...(options.headers || {}),
-          'User-Agent': 'DhaneshPortfolio/1.0.0',
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${hfApiKey}`
-        }
-      })
+      model: 'sentence-transformers/all-MiniLM-L6-v2',
+      inputs: cleanText,
+      options: { 
+        wait_for_model: true,
+        use_cache: true
+      }
     });
-
-    clearTimeout(timeoutId);
-
-    let embedding;
+    
+    // Handle different response formats
+    let embedding = [];
     if (Array.isArray(response)) {
-      embedding = response[0] || response;
+      // Flatten nested arrays
+      embedding = response.flat(Infinity);
     } else if (response && typeof response === 'object') {
-      embedding = response.embeddings || response.embedding || response;
+      // Handle object response by taking values
+      if (response.embeddings) {
+        embedding = response.embeddings;
+      } else if (response.embedding) {
+        embedding = response.embedding;
+      } else {
+        embedding = Object.values(response);
+      }
     }
-
-    if (!embedding || !Array.isArray(embedding) || embedding.length === 0) {
-      throw new Error('Invalid embedding format');
+    
+    // Ensure we have exactly 384 dimensions
+    if (embedding.length !== 384) {
+      if (embedding.length > 384) {
+        embedding = embedding.slice(0, 384);
+      } else {
+        const padding = new Array(384 - embedding.length).fill(0);
+        embedding = [...embedding, ...padding];
+      }
     }
-
+    
+    // Normalize the embedding
+    const norm = Math.sqrt(embedding.reduce((sum, val) => sum + val * val, 0));
+    if (norm > 0) {
+      embedding = embedding.map(val => val / norm);
+    }
+    
     return embedding;
-
   } catch (error) {
-    console.error('[Embedding] Error:', error.message);
-    if (attempt === 1 && ['AbortError', 'FetchError'].includes(error.name)) {
+    console.error('Error generating embedding:', error);
+    console.error('Error details:', {
+      message: error.message,
+      name: error.name,
+      stack: error.stack
+    });
+    if (attempt === 1) {
       console.warn('[Embedding] Retrying...');
       return getEmbedding(text, attempt + 1);
     }
@@ -207,12 +249,13 @@ const searchPinecone = async (query, topK = 3) => {
         throw new Error('Pinecone index not initialized');
       }
       
-      // Query the index
+      // Query the index using the latest API
       const results = await pineconeIndex.query({
         vector: queryEmbedding,
         topK,
         includeMetadata: true,
-        includeValues: false
+        includeValues: false,
+        filter: {}
       });
       
       return results.matches || [];
