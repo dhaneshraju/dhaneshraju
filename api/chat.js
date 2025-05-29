@@ -50,10 +50,19 @@ async function initializeClients() {
         }
       });
 
-      // Initialize Pinecone
-      pinecone = new Pinecone({ 
+      // Initialize Pinecone with environment from the full API URL
+      // The environment should be the part after 'https://' and before '.pinecone.io'
+      // For example: 'us-east1-aws' from 'https://your-index-name-us-east1-aws.svc.pinecone.io'
+      pinecone = new Pinecone({
         apiKey: pineconeApiKey,
-        environment: pineconeEnvironment
+        environment: pineconeEnvironment,
+        // Add custom fetch with timeout
+        fetch: (url, options) => {
+          return fetch(url, {
+            ...options,
+            signal: AbortSignal.timeout(10000) // 10 second timeout
+          });
+        }
       });
 
       // Initialize Hugging Face
@@ -66,8 +75,21 @@ async function initializeClients() {
         }
       });
 
-      // Test Pinecone connection
-      await pinecone.listIndexes();
+      // Test Pinecone connection with better error details
+      try {
+        console.log(`[Pinecone] Testing connection to environment: ${pineconeEnvironment}`);
+        const indexes = await pinecone.listIndexes();
+        console.log(`[Pinecone] Successfully connected. Available indexes:`, 
+          indexes.indexes?.map(i => i.name).join(', ') || 'None');
+      } catch (pineconeError) {
+        console.error('[Pinecone] Connection test failed:', {
+          message: pineconeError.message,
+          environment: pineconeEnvironment,
+          indexName: pineconeIndexName,
+          apiKeyPrefix: pineconeApiKey?.substring(0, 8) + '...' || 'Not set'
+        });
+        throw pineconeError; // Re-throw to trigger retry
+      }
       
       console.log('[API] All clients initialized successfully');
       return;
@@ -85,7 +107,13 @@ async function initializeClients() {
     }
   }
   
-  throw new Error(`Failed to initialize clients after ${maxRetries} attempts: ${lastError.message}`);
+  const errorMessage = `Failed to initialize clients after ${maxRetries} attempts: ${lastError.message}`;
+  console.error(errorMessage, {
+    pineconeEnvironment,
+    pineconeIndexName,
+    apiKeyPrefix: pineconeApiKey?.substring(0, 8) + '...' || 'Not set'
+  });
+  throw new Error(errorMessage);
 }
 
 // Initialize all clients
