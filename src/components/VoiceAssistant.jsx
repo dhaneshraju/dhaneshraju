@@ -489,7 +489,13 @@ const VoiceAssistant = ({ isOpen, onClose, inputMode, onInputModeChange, onAISpe
   if (!isOpen) return null;
 
   return (
-    <div className="fixed top-20 right-6 w-80 bg-gradient-to-br from-gray-900 to-gray-800 text-white rounded-xl shadow-2xl overflow-hidden transition-all duration-300 transform z-50" style={{ maxHeight: '500px' }}>
+    <div className="fixed top-20 right-6 w-80 bg-gradient-to-br from-gray-900 to-gray-800 text-white rounded-xl shadow-2xl overflow-hidden transition-all duration-300 transform z-50" style={{ 
+      maxHeight: 'min(80vh, 500px)',
+      width: 'calc(100% - 3rem)',
+      maxWidth: '24rem',
+      right: '1.5rem',
+      top: '5rem'
+    }}>
       {/* Header */}
       <div className="bg-gradient-to-r from-blue-600 to-blue-800 p-4 flex justify-between items-center">
         <div className="flex items-center space-x-3">
