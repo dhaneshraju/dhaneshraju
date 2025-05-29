@@ -1,5 +1,5 @@
 
-import { PineconeClient } from '@pinecone-database/pinecone';
+import { Pinecone } from '@pinecone-database/pinecone'; 
 import Groq from 'groq-sdk';
 import { HfInference } from '@huggingface/inference';
 
@@ -52,10 +52,9 @@ async function initializeClients() {
       });
 
       // Initialize Pinecone client for serverless index
-      pinecone = new PineconeClient();
-      await pinecone.init({
+      pinecone = new Pinecone({
         apiKey: pineconeApiKey,
-        baseUrl: pineconeHost, // Use the full host URL here, no environment param
+        indexHost: pineconeHost, // full URL like https://gleaming-cypress-xxx.pinecone.io
       });
 
       // Initialize Hugging Face
@@ -68,15 +67,6 @@ async function initializeClients() {
         }
       });
 
-      // Test Pinecone connection by listing indexes
-      try {
-        console.log(`[Pinecone] Testing connection by listing indexes`);
-        const indexes = await pinecone.listIndexes();
-        console.log(`[Pinecone] Available indexes:`, indexes.join(', ') || 'None');
-      } catch (pineconeError) {
-        console.error('[Pinecone] Connection test failed:', pineconeError);
-        throw pineconeError;
-      }
       
       console.log('[API] All clients initialized successfully');
       return;
