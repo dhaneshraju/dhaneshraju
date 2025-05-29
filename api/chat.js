@@ -51,10 +51,10 @@ async function initializeClients() {
         }
       });
 
-      // Initialize Pinecone client for serverless index
+      // Initialize Pinecone client
       pinecone = new Pinecone({
         apiKey: pineconeApiKey,
-        environment: pineconeHost.replace(/^https?:\/\//, '') // Remove http:// or https:// from the host
+        environment: pineconeHost.includes('us-east1') ? 'gcp-starter' : 'us-west1'
       });
 
       // Initialize Hugging Face
@@ -211,21 +211,22 @@ const searchPinecone = async (query, topK = 3) => {
     
     let index;
     try {
-      // Note: use .Index() to get the index in pinecone client v2
-      index = pinecone.Index(pineconeIndexName);
+        // Get the index reference
+      const index = pinecone.index(pineconeIndexName);
+      
+      // Query the index
+      const results = await index.query({
+        vector: queryEmbedding,
+        topK,
+        includeMetadata: true,
+        includeValues: false
+      });
+      
+      return results.matches || [];
     } catch (error) {
-      console.error('Failed to get Pinecone index:', error);
+      console.error('Failed to query Pinecone index:', error);
       return [];
     }
-    
-    const results = await index.query({
-      vector: queryEmbedding,
-      topK,
-      includeMetadata: true,
-      includeValues: false
-    });
-    
-    return results.matches || [];
     
   } catch (error) {
     console.error('Error searching Pinecone:', error);
