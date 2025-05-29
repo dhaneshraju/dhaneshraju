@@ -6,7 +6,7 @@ import { HfInference } from '@huggingface/inference';
 // Initialize with environment variables
 const groqApiKey = process.env.VITE_GROQ_API_KEY;
 const pineconeApiKey = process.env.VITE_PINECONE_API_KEY;
-const pineconeEnvironment = process.env.VITE_PINECONE_ENVIRONMENT || 'gcp-starter';
+const pineconeEnvironment = process.env.VITE_PINECONE_ENVIRONMENT || 'us-east1-aws';
 const hfApiKey = process.env.VITE_HUGGINGFACE_API_KEY;
 const pineconeIndexName = process.env.VITE_PINECONE_INDEX;
 
