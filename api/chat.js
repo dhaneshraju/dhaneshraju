@@ -47,21 +47,21 @@ async function initializeClients() {
         timeout: 10000
       });
 
-      // Initialize Pinecone client with the latest API (v6+)
+      // Initialize Pinecone client with the latest API
       pinecone = new Pinecone({
         apiKey: pineconeApiKey,
-        // For Pinecone v6+, we need to use controllerHostUrl instead of environment
-        controllerHostUrl: `https://controller.${pineconeEnvironment}.pinecone.io`
+        // For the latest version, we only need the API key
+        // The environment/region is included in the index name
       });
       
-      console.log('[API] Pinecone client initialized with controller URL:', `https://controller.${pineconeEnvironment}.pinecone.io`);
+      console.log('[API] Pinecone client initialized');
       
       if (!pinecone) {
         throw new Error('Failed to initialize Pinecone client');
       }
       
       try {
-        // Get the index reference during initialization for Pinecone v6+
+        // Get the index reference during initialization
         pineconeIndex = pinecone.Index(pineconeIndexName);
         console.log(`[API] Pinecone initialized with index: ${pineconeIndexName}`);
         
@@ -71,14 +71,25 @@ async function initializeClients() {
           console.log('[API] Successfully connected to Pinecone index. Stats:', {
             dimension: stats.dimension,
             indexFullness: stats.indexFullness,
-            totalVectorCount: stats.totalVectorCount
+            totalVectorCount: stats.totalVectorCount,
+            namespaces: stats.namespaces ? Object.keys(stats.namespaces) : []
           });
+          
+          // Verify we can query the index
+          const testQuery = await pineconeIndex.query({
+            vector: new Array(384).fill(0), // Test with zero vector
+            topK: 1,
+            includeMetadata: true
+          });
+          console.log('[API] Test query successful');
+          
         } catch (error) {
           console.error('[API] Failed to connect to Pinecone index:', error.message);
           console.error('Error details:', {
             message: error.message,
             code: error.code,
-            status: error.status
+            status: error.status,
+            stack: error.stack
           });
           throw new Error(`Failed to connect to Pinecone index: ${error.message}`);
         }
