@@ -453,10 +453,23 @@ export default async function handler(req, res) {
   const requestId = Date.now();
   console.log(`\n=== New Chat Request (ID: ${requestId}) ===`);
 
-  // CORS headers
-  res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+  // Enhanced CORS headers
+  const allowedOrigins = [
+    'http://localhost:3000',
+    'https://dhaneshraju.vercel.app',
+    'https://www.dhaneshraju.com'
+  ];
+  
+  const origin = req.headers.origin;
+  if (allowedOrigins.includes(origin)) {
+    res.setHeader('Access-Control-Allow-Origin', origin);
+  } else {
+    res.setHeader('Access-Control-Allow-Origin', '*');
+  }
+  
+  res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS, GET');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+  res.setHeader('Access-Control-Allow-Credentials', 'true');
   
   // Handle preflight requests
   if (req.method === 'OPTIONS') {
@@ -558,6 +571,13 @@ export default async function handler(req, res) {
     };
 
     console.log(`[${requestId}] Sending response with ${response.usage.completion_tokens} completion tokens`);
+    console.log(`[${requestId}] Response content:`, JSON.stringify({
+      id: response.id,
+      model: response.model,
+      content: response.choices[0].message.content.substring(0, 100) + '...',
+      finish_reason: response.choices[0].finish_reason
+    }, null, 2));
+    
     return res.json(response);
 
   } catch (error) {
