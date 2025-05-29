@@ -10,22 +10,86 @@ const pineconeEnvironment = process.env.VITE_PINECONE_ENVIRONMENT || 'gcp-starte
 const hfApiKey = process.env.VITE_HUGGINGFACE_API_KEY;
 const pineconeIndexName = process.env.VITE_PINECONE_INDEX;
 
+// Validate required environment variables
+const requiredVars = {
+  'VITE_GROQ_API_KEY': groqApiKey,
+  'VITE_PINECONE_API_KEY': pineconeApiKey,
+  'VITE_PINECONE_INDEX': pineconeIndexName,
+  'VITE_HUGGINGFACE_API_KEY': hfApiKey
+};
+
+const missingVars = Object.entries(requiredVars)
+  .filter(([_, value]) => !value)
+  .map(([key]) => key);
+
+if (missingVars.length > 0) {
+  console.error('Missing required environment variables:', missingVars.join(', '));
+  throw new Error(`Missing required environment variables: ${missingVars.join(', ')}`);
+}
+
 // Initialize clients
 let groq, pinecone, hf;
 
-// Initialize with error handling
-try {
-  groq = new Groq({ apiKey: groqApiKey });
-  pinecone = new Pinecone({ 
-    apiKey: pineconeApiKey,
-    environment: pineconeEnvironment
-  });
-  hf = new HfInference(hfApiKey);
-  console.log('[API] Clients initialized successfully');
-} catch (error) {
-  console.error('Failed to initialize clients:', error);
-  throw new Error(`Failed to initialize clients: ${error.message}`);
+// Initialize clients with retry logic
+async function initializeClients() {
+  const maxRetries = 3;
+  let lastError;
+
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      console.log(`[API] Initializing clients (attempt ${attempt}/${maxRetries})`);
+      
+      // Initialize Groq
+      groq = new Groq({ 
+        apiKey: groqApiKey,
+        fetch: (url, options) => {
+          return fetch(url, {
+            ...options,
+            signal: AbortSignal.timeout(10000) // 10 second timeout
+          });
+        }
+      });
+
+      // Initialize Pinecone
+      pinecone = new Pinecone({ 
+        apiKey: pineconeApiKey,
+        environment: pineconeEnvironment
+      });
+
+      // Initialize Hugging Face
+      hf = new HfInference(hfApiKey, {
+        fetch: (url, options) => {
+          return fetch(url, {
+            ...options,
+            signal: AbortSignal.timeout(10000) // 10 second timeout
+          });
+        }
+      });
+
+      // Test Pinecone connection
+      await pinecone.listIndexes();
+      
+      console.log('[API] All clients initialized successfully');
+      return;
+      
+    } catch (error) {
+      lastError = error;
+      console.error(`[API] Initialization attempt ${attempt} failed:`, error.message);
+      
+      if (attempt < maxRetries) {
+        // Exponential backoff
+        const delay = Math.min(1000 * Math.pow(2, attempt), 10000);
+        console.log(`[API] Retrying in ${delay}ms...`);
+        await new Promise(resolve => setTimeout(resolve, delay));
+      }
+    }
+  }
+  
+  throw new Error(`Failed to initialize clients after ${maxRetries} attempts: ${lastError.message}`);
 }
+
+// Initialize all clients
+await initializeClients();
 
 // Disable noisy logs in production
 if (process.env.NODE_ENV === 'production') {
@@ -88,6 +152,11 @@ const simpleEmbedding = (text) => {
  * @returns {Promise<number[]>} - The embedding vector
  */
 const getEmbedding = async (text, attempt = 1) => {
+  // Use simple embedding if Hugging Face is not initialized
+  if (!hf) {
+    console.warn('Hugging Face client not initialized, using simple embedding');
+    return simpleEmbedding(text || '');
+  }
   const startTime = Date.now();
   let timeoutId;
   
@@ -214,12 +283,37 @@ const getEmbedding = async (text, attempt = 1) => {
 };
 
 // Function to search Pinecone
-async function searchPinecone(query, topK = 3) {
+const searchPinecone = async (query, topK = 3) => {
+  if (!pinecone) {
+    console.error('Pinecone client not initialized');
+    return [];
+  }
+  
+  if (!pineconeIndexName) {
+    console.error('Pinecone index name not configured');
+    return [];
+  }
+  
   try {
     console.log(`Searching Pinecone for: "${query}"`);
-    const queryEmbedding = await getEmbedding(query);
-    const index = pinecone.index(pineconeIndexName);
     
+    // Get the embedding for the query
+    const queryEmbedding = await getEmbedding(query);
+    if (!queryEmbedding || !Array.isArray(queryEmbedding) || queryEmbedding.length === 0) {
+      console.error('Failed to generate valid embedding for query');
+      return [];
+    }
+    
+    // Get the Pinecone index
+    let index;
+    try {
+      index = pinecone.index(pineconeIndexName);
+    } catch (error) {
+      console.error('Failed to get Pinecone index:', error);
+      return [];
+    }
+    
+    // Query the index
     const results = await index.query({
       vector: queryEmbedding,
       topK,
@@ -228,11 +322,12 @@ async function searchPinecone(query, topK = 3) {
     });
     
     return results.matches || [];
+    
   } catch (error) {
     console.error('Error searching Pinecone:', error);
     return [];
   }
-}
+};
 
 // Function to generate response with context
 async function generateResponse(query, context) {
