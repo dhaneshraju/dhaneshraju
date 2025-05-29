@@ -1,71 +1,26 @@
-// /api/chat.js - Enhanced with better error handling and timeouts
+// /api/chat.js - Updated to match working local deployment
 import { Pinecone } from '@pinecone-database/pinecone';
 import Groq from 'groq-sdk';
 import { HfInference } from '@huggingface/inference';
 
 // Initialize with environment variables
-const groqApiKey = process.env.GROQ_API_KEY;
-const pineconeApiKey = process.env.PINECONE_API_KEY;
-const pineconeEnv = process.env.PINECONE_ENVIRONMENT;
-const hfApiKey = process.env.HUGGINGFACE_API_KEY;
-const pineconeIndexName = process.env.PINECONE_INDEX;
+const groqApiKey = process.env.VITE_GROQ_API_KEY;
+const pineconeApiKey = process.env.VITE_PINECONE_API_KEY;
+const hfApiKey = process.env.VITE_HUGGINGFACE_API_KEY;
+const pineconeIndexName = process.env.VITE_PINECONE_INDEX;
 
-// Validate required environment variables
-const requiredEnvVars = {
-  'GROQ_API_KEY': groqApiKey,
-  'PINECONE_API_KEY': pineconeApiKey,
-  'HUGGINGFACE_API_KEY': hfApiKey,
-  'PINECONE_INDEX': pineconeIndexName
-};
+// Initialize clients
+let groq, pinecone, hf;
 
-const missingVars = Object.entries(requiredEnvVars)
-  .filter(([_, value]) => !value)
-  .map(([key]) => key);
-
-if (missingVars.length > 0) {
-  console.error('Missing required environment variables:', missingVars.join(', '));
-  throw new Error(`Missing required environment variables: ${missingVars.join(', ')}`);
-}
-
-// Initialize clients with error handling
-let groq, pinecone, hf, pineconeInitialized = false;
-
-// Initialize Pinecone client
-const initPinecone = async () => {
-  if (pineconeInitialized) return true;
-  
-  try {
-    console.log('[Pinecone] Initializing Pinecone client...');
-    
-    if (!pineconeApiKey) {
-      throw new Error('PINECONE_API_KEY is not set in environment variables');
-    }
-    
-    pinecone = new Pinecone({
-      apiKey: pineconeApiKey,
-      environment: pineconeEnv
-    });
-    
-    // Test the connection by listing indexes
-    await pinecone.listIndexes();
-    pineconeInitialized = true;
-    console.log('[Pinecone] Client initialized successfully');
-    return true;
-  } catch (error) {
-    console.error('[Pinecone] Failed to initialize:', error.message);
-    pineconeInitialized = false;
-    return false;
-  }
-};
-
-// Initialize other clients
+// Initialize with error handling
 try {
   groq = new Groq({ apiKey: groqApiKey });
+  pinecone = new Pinecone({ apiKey: pineconeApiKey });
   hf = new HfInference(hfApiKey);
-  console.log('[API] Groq and HuggingFace clients initialized');
+  console.log('[API] Clients initialized successfully');
 } catch (error) {
-  console.error('Failed to initialize API clients:', error);
-  throw new Error(`Failed to initialize API clients: ${error.message}`);
+  console.error('Failed to initialize clients:', error);
+  throw new Error(`Failed to initialize clients: ${error.message}`);
 }
 
 // Disable noisy logs in production
@@ -98,7 +53,7 @@ const EMBEDDING_MODEL = 'sentence-transformers/all-MiniLM-L6-v2';
 const EMBEDDING_MAX_LENGTH = 512; // Max characters to process
 const EMBEDDING_TIMEOUT = 10000; // 10 seconds
 
-// Simple sentence embedding function as a fallback
+// Simple fallback embedding function
 const simpleEmbedding = (text) => {
   // This is a very basic embedding that just converts text to numbers
   // It's not as good as a real embedding model but can work as a fallback
@@ -254,250 +209,68 @@ const getEmbedding = async (text, attempt = 1) => {
   }
 };
 
-const queryPinecone = async (query) => {
-  const startTime = Date.now();
-  let timeoutId;
-  
+// Function to search Pinecone
+async function searchPinecone(query, topK = 3) {
   try {
-    console.log('[Pinecone] Starting query...');
-    
-    if (!query || typeof query !== 'string' || query.trim() === '') {
-      console.error('[Pinecone] Invalid query:', query);
-      return [];
-    }
-    
-    // Initialize Pinecone if not already done
-    const initialized = await initPinecone();
-    if (!initialized) {
-      console.error('[Pinecone] Client not initialized, skipping vector search');
-      return [];
-    }
-    
-    // Add timeout to the Pinecone query
-    const controller = new AbortController();
-    timeoutId = setTimeout(() => {
-      controller.abort();
-      console.warn('[Pinecone] Query timed out');
-    }, PINECONE_QUERY_TIMEOUT);
-    
-    // Get the embedding for the query
-    console.log('[Pinecone] Generating embedding for query...');
-    const embedding = await getEmbedding(query);
-    
-    if (!Array.isArray(embedding) || embedding.length === 0) {
-      console.error('[Pinecone] Failed to generate valid embedding');
-      return [];
-    }
-    
-    // Get the index
-    console.log(`[Pinecone] Querying index: ${pineconeIndexName}`);
+    console.log(`Searching Pinecone for: "${query}"`);
+    const queryEmbedding = await getEmbedding(query);
     const index = pinecone.index(pineconeIndexName);
     
-    // Query the index
     const results = await index.query({
-      vector: embedding,
-      topK: PINECONE_TOP_K,
+      vector: queryEmbedding,
+      topK,
       includeMetadata: true,
       includeValues: false
     });
     
-    clearTimeout(timeoutId);
-    const duration = Date.now() - startTime;
-    
-    if (!results?.matches) {
-      console.warn('[Pinecone] No matches in response:', results);
-      return [];
-    }
-    
-    // Process and filter results
-    const filteredResults = results.matches
-      .filter(match => {
-        const isValid = match?.score >= PINECONE_MIN_SCORE && 
-                      match?.metadata?.text?.trim();
-        if (!isValid) {
-          console.warn('[Pinecone] Filtered out low-scoring or invalid match:', {
-            score: match?.score,
-            hasText: !!match?.metadata?.text?.trim()
-          });
-        }
-        return isValid;
-      })
-      .map((match, index) => ({
-        id: match.id || `result-${index}`,
-        score: match.score || 0,
-        text: match.metadata.text.trim(),
-        source: match.metadata.source || 'unknown',
-        metadata: match.metadata || {}
-      }));
-    
-    console.log(`[Pinecone] Query completed in ${duration}ms. Found ${filteredResults.length} relevant results.`);
-    
-    if (filteredResults.length === 0) {
-      console.warn('[Pinecone] No relevant results found for query:', query.substring(0, 100));
-    }
-    
-    return filteredResults;
-    
+    return results.matches || [];
   } catch (error) {
-    if (timeoutId) clearTimeout(timeoutId);
-    
-    const errorInfo = {
-      message: error.message,
-      name: error.name,
-      code: error.code,
-      query: query?.substring(0, 100)
-    };
-    
-    console.error('[Pinecone] Error in queryPinecone:', errorInfo);
-    
-    // Don't throw, just return empty array to allow chat to continue
+    console.error('Error searching Pinecone:', error);
     return [];
   }
-};
+}
 
-const generateResponse = async (messages, contextResults, attempt = 1) => {
-  const startTime = Date.now();
-  let timeoutId;
-  
+// Function to generate response with context
+async function generateResponse(query, context) {
   try {
-    console.log('[Groq] Starting response generation...');
+    const formattedContext = context.map((item, index) => 
+      `--- Source ${index + 1} ---\n${item.metadata.text}`
+    ).join('\n\n');
     
-    // Input validation
-    if (!Array.isArray(messages) || messages.length === 0) {
-      throw new Error('No messages provided');
-    }
+    const systemPrompt = `You are a helpful AI assistant that helps answer questions based on the provided context.
+    - If the answer isn't in the context, say you don't know.
+    - Keep responses concise (2-3 sentences).
+    - Always respond in first person as if you are the person being asked about.
+    - Focus on the most relevant information from the context.`;
     
-    // Format the context from Pinecone results
-    const context = Array.isArray(contextResults) && contextResults.length > 0
-      ? contextResults
-          .filter(result => result?.text)
-          .map((result, i) => `[${i + 1}] ${result.text}`)
-          .join('\n\n')
-      : 'No relevant context found.';
-    
-    // Create the system message with context
-    const systemMessage = {
-      role: 'system',
-      content: `You are Sophon, an AI assistant trained on Dhanesh Raju's background. 
-Be helpful, warm, and professional. Answer briefly with Markdown formatting.
+    const response = await groq.chat.completions.create({
+      messages: [
+        { role: "system", content: systemPrompt },
+        { role: "user", content: `Context:\n${formattedContext}\n\nQuestion: ${query}\n\nAnswer:` }
+      ],
+      model: "llama3-70b-8192",
+      temperature: 0.5,
+      max_tokens: 500
+    });
 
-Use the following context to answer questions. If you don't know the answer, say so.\n\nContext:\n${context}`
-    };
-    
-    // Combine system message with user messages (ensure they're in the right format)
-    const conversation = [
-      systemMessage,
-      ...messages.filter(msg => 
-        msg && 
-        typeof msg === 'object' && 
-        msg.role && 
-        msg.content &&
-        ['system', 'user', 'assistant'].includes(msg.role)
-      ).map(msg => ({
-        role: msg.role,
-        content: String(msg.content).substring(0, 10000) // Limit content length
-      }))
-    ];
-    
-    // Choose the model to use (with fallback)
-    const modelToUse = attempt === 1 ? GROQ_MODEL : GROQ_MODEL_FALLBACK;
-    
-    // Add timeout to the Groq API call
-    const controller = new AbortController();
-    timeoutId = setTimeout(() => controller.abort(), GROQ_TIMEOUT);
-    
-    console.log(`[Groq] Sending request to ${modelToUse} with ${conversation.length} messages`);
-    
-    try {
-      // Call Groq API
-      const response = await groq.chat.completions.create(
-        {
-          messages: conversation,
-          model: modelToUse,
-          temperature: GROQ_TEMPERATURE,
-          max_tokens: GROQ_MAX_TOKENS,
-        },
-        {
-          signal: controller.signal,
-          headers: {
-            'User-Agent': 'DhaneshPortfolio/1.0.0',
-            'Content-Type': 'application/json'
-          }
-        }
-      );
-      
-      clearTimeout(timeoutId);
-      const duration = Date.now() - startTime;
-      
-      if (!response?.choices?.[0]?.message?.content) {
-        console.warn('[Groq] Unexpected response format:', response);
-        throw new Error('Received invalid response format from AI service');
-      }
-      
-      const responseContent = response.choices[0].message.content.trim();
-      console.log(`[Groq] Response generated in ${duration}ms (${responseContent.length} chars)`);
-      
-      return responseContent || 'I apologize, but I could not generate a response at this time.';
-      
-    } catch (apiError) {
-      // Handle model deprecation specifically
-      if (attempt === 1 && 
-          (apiError.message.includes('model_decommissioned') || 
-           apiError.message.includes('model not found'))) {
-        console.warn(`[Groq] Model ${modelToUse} not available, falling back to ${GROQ_MODEL_FALLBACK}`);
-        return generateResponse(messages, contextResults, attempt + 1);
-      }
-      throw apiError; // Re-throw other errors
-    }
-    
+    return response.choices[0]?.message?.content || "I couldn't generate a response based on the available information.";
   } catch (error) {
-    if (timeoutId) clearTimeout(timeoutId);
-    
-    const errorDetails = {
-      message: error.message,
-      name: error.name,
-      type: error.type,
-      code: error.code,
-      stack: process.env.NODE_ENV === 'development' ? error.stack : undefined,
-      messageCount: Array.isArray(messages) ? messages.length : 0,
-      hasContext: Array.isArray(contextResults) && contextResults.length > 0,
-      attempt
-    };
-    
-    console.error('[Groq] Error:', errorDetails);
-    
-    // Provide user-friendly error messages
-    if (error.name === 'AbortError') {
-      throw new Error('AI service request timed out. Please try again.');
-    } else if (error.message.includes('ECONNREFUSED') || error.message.includes('ENOTFOUND')) {
-      throw new Error('Could not connect to the AI service. Please check your internet connection.');
-    } else if (error.message.includes('401') || error.message.includes('unauthorized')) {
-      throw new Error('Authentication failed. Please check your API key and try again.');
-    } else if (error.message.includes('rate limit') || error.message.includes('quota')) {
-      throw new Error('Rate limit exceeded. Please try again in a few moments.');
-    } else if (error.message.includes('context length') || error.message.includes('too many tokens')) {
-      throw new Error('The conversation is too long. Please start a new conversation.');
-    } else if (error.message.includes('model') && error.message.includes('not found')) {
-      throw new Error('The AI model is currently unavailable. Please try again later.');
-    } else if (error.message.includes('invalid_request') || error.message.includes('validation_error')) {
-      throw new Error('Invalid request. Please try again with a different message.');
-    } else if (error.message.includes('model_decommissioned')) {
-      throw new Error('The AI model has been updated. Please refresh the page and try again.');
-    }
-    
-    // Fallback to a generic error message
-    throw new Error('Sorry, I encountered an error while processing your request. Please try again.');
+    console.error('Error generating response:', error);
+    return "I'm sorry, I encountered an error while processing your request.";
   }
 };
 
 export default async function handler(req, res) {
+  const requestId = Date.now();
+  console.log(`\n=== New Chat Request (ID: ${requestId}) ===`);
+  
   // Set CORS headers
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
   res.setHeader('Content-Type', 'application/json');
 
-  // Handle preflight requests
+  // Handle CORS preflight
   if (req.method === 'OPTIONS') {
     return res.status(200).end();
   }
@@ -506,126 +279,129 @@ export default async function handler(req, res) {
   if (req.method !== 'POST') {
     return res.status(405).json({ 
       success: false,
-      error: 'Method Not Allowed',
-      message: 'Only POST requests are allowed' 
+      error: 'method_not_allowed',
+      message: 'Only POST requests are supported',
+      requestId
     });
   }
 
   try {
-    // Parse request body
-    let body;
-    try {
-      body = typeof req.body === 'string' ? JSON.parse(req.body) : req.body;
-    } catch (parseError) {
-      console.error('[API] Error parsing request body:', parseError);
-      return res.status(400).json({
-        success: false,
-        error: 'Invalid JSON',
-        message: 'The request body must be valid JSON'
-      });
-    }
-
-    // Validate request body
-    if (!body) {
-      console.error('[API] Empty request body');
-      return res.status(400).json({
-        success: false,
-        error: 'Bad Request',
-        message: 'Request body is required'
-      });
-    }
-
-    // Extract user message
-    let userMessage;
-    if (body.message) {
-      userMessage = body.message;
-    } else if (Array.isArray(body.messages)) {
-      const userMsg = body.messages.find(m => m.role === 'user');
-      userMessage = userMsg?.content;
-    }
-
-    if (!userMessage || typeof userMessage !== 'string' || userMessage.trim() === '') {
-      console.error('[API] No valid user message found');
-      return res.status(400).json({
-        success: false,
-        error: 'Bad Request',
-        message: 'A non-empty message is required'
-      });
-    }
-
-    console.log(`[API] Received message: ${userMessage.substring(0, 100)}${userMessage.length > 100 ? '...' : ''}`);
+    const { messages } = req.body;
     
-    // Process the message
-    const messages = [{ role: 'user', content: userMessage }];
-    
-    try {
-      // Get relevant context from Pinecone
-      let context = [];
-      try {
-        context = await queryPinecone(userMessage);
-        console.log(`[API] Retrieved ${context.length} context items`);
-      } catch (embeddingError) {
-        console.error('[API] Error getting context from Pinecone:', embeddingError);
-        // Continue without context if embedding fails
-        context = [];
-      }
-      
-      // Generate response using the context (or without it if context fetching failed)
-      const responseText = await generateResponse(messages, context);
-      
-      // Prepare response data
-      const responseData = {
-        success: true,
-        response: responseText,
-        timestamp: new Date().toISOString()
-      };
-      
-      // Only include sources if we have them
-      if (context.length > 0) {
-        responseData.sources = context.map((item, index) => ({
-          id: index,
-          source: item.source || 'unknown',
-          text: item.text?.substring(0, 200) || '',
-          score: item.score || 0
-        }));
-      }
-      
-      // Return successful response
-      return res.status(200).json(responseData);
-      
-    } catch (error) {
-      console.error('[API] Error processing request:', error);
-      
-      // Provide more specific error messages based on error type
-      let statusCode = 500;
-      let errorMessage = 'An unexpected error occurred';
-      
-      if (error.message.includes('timed out') || error.name === 'AbortError') {
-        statusCode = 504; // Gateway Timeout
-        errorMessage = 'The request took too long to process. Please try again.';
-      } else if (error.message.includes('unauthorized') || error.message.includes('401')) {
-        statusCode = 401;
-        errorMessage = 'Authentication failed. Please check your API keys.';
-      } else if (error.message.includes('rate limit')) {
-        statusCode = 429; // Too Many Requests
-        errorMessage = 'Rate limit exceeded. Please try again later.';
-      }
-      
-      return res.status(statusCode).json({
+    if (!messages || !Array.isArray(messages)) {
+      return res.status(400).json({
         success: false,
-        error: error.name || 'Server Error',
-        message: errorMessage,
-        ...(process.env.NODE_ENV === 'development' && { details: error.message })
+        error: 'invalid_request',
+        message: 'Expected messages array in request body',
+        requestId
       });
     }
+    
+    // Get the last user message
+    const lastUserMessage = [...messages].reverse().find(m => m.role === 'user');
+    if (!lastUserMessage) {
+      return res.status(400).json({
+        success: false,
+        error: 'no_user_message',
+        message: 'No user message found in conversation',
+        requestId
+      });
+    }
+    
+    const userQuery = lastUserMessage.content;
+    console.log(`[${requestId}] Processing query: "${userQuery}"`);
+    
+    // 1. Search Pinecone for relevant context
+    console.log(`[${requestId}] Searching Pinecone for relevant context...`);
+    const searchResults = await searchPinecone(userQuery, 3);
+    
+    if (searchResults.length === 0) {
+      console.log(`[${requestId}] No relevant context found in Pinecone`);
+      // Fallback to regular chat if no context found
+      const response = await groq.chat.completions.create({
+        messages: [
+          ...messages,
+          {
+            role: "system",
+            content: "You are a helpful AI assistant. Answer the user's question based on your general knowledge."
+          }
+        ],
+        model: 'llama3-8b-8192',
+        temperature: 0.7,
+        max_tokens: 1000,
+        stream: false
+      });
+      
+      return res.json({
+        id: response.id,
+        object: 'chat.completion',
+        created: Math.floor(Date.now() / 1000),
+        model: response.model,
+        choices: response.choices.map(choice => ({
+          index: choice.index,
+          message: {
+            role: choice.message.role,
+            content: choice.message.content
+          },
+          finish_reason: choice.finish_reason
+        })),
+        usage: response.usage
+      });
+    }
+    
+    console.log(`[${requestId}] Found ${searchResults.length} relevant context items`);
+    
+    // 2. Generate response using context
+    console.log(`[${requestId}] Generating response with context...`);
+    const responseText = await generateResponse(userQuery, searchResults);
+    
+    // 3. Format and send response
+    console.log(`[${requestId}] Sending response to client`);
+    
+    return res.json({
+      id: `chatcmpl-${Date.now()}`,
+      object: 'chat.completion',
+      created: Math.floor(Date.now() / 1000),
+      model: 'llama3-70b-8192',
+      choices: [{
+        index: 0,
+        message: {
+          role: 'assistant',
+          content: responseText
+        },
+        finish_reason: 'stop'
+      }],
+      usage: {
+        prompt_tokens: 0,  // These would need to be calculated
+        completion_tokens: 0,
+        total_tokens: 0
+      }
+    });
     
   } catch (error) {
-    console.error('[API] Unhandled error:', error);
-    return res.status(500).json({
+    console.error(`[${requestId}] Error:`, error);
+    
+    // Determine appropriate status code and error message
+    let statusCode = 500;
+    let errorMessage = 'An unexpected error occurred';
+    
+    if (error.message.includes('unauthorized') || error.message.includes('401')) {
+      statusCode = 401;
+      errorMessage = 'Authentication failed. Please check your API keys.';
+    } else if (error.message.includes('rate limit')) {
+      statusCode = 429; // Too Many Requests
+      errorMessage = 'Rate limit exceeded. Please try again later.';
+    }
+    
+    return res.status(statusCode).json({
       success: false,
-      error: 'Internal Server Error',
-      message: 'An unexpected error occurred',
-      ...(process.env.NODE_ENV === 'development' && { details: error.message })
+      error: error.name || 'server_error',
+      message: errorMessage,
+      requestId,
+      ...(process.env.NODE_ENV === 'development' && { 
+        details: error.message,
+        stack: error.stack 
+      })
     });
   }
 }
