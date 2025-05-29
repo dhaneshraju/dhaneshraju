@@ -50,26 +50,36 @@ async function initializeClients() {
       // Initialize Pinecone client with the latest API (v6+)
       pinecone = new Pinecone({
         apiKey: pineconeApiKey,
-        environment: pineconeEnvironment,
-        // Disable additional properties check
-        additionalProperties: false
+        // For Pinecone v6+, we need to use controllerHostUrl instead of environment
+        controllerHostUrl: `https://controller.${pineconeEnvironment}.pinecone.io`
       });
+      
+      console.log('[API] Pinecone client initialized with controller URL:', `https://controller.${pineconeEnvironment}.pinecone.io`);
       
       if (!pinecone) {
         throw new Error('Failed to initialize Pinecone client');
       }
       
       try {
-        // Get the index reference during initialization
-        pineconeIndex = pinecone.index(pineconeIndexName);
-        console.log(`[API] Pinecone initialized with index: ${pineconeIndexName}, environment: ${pineconeEnvironment}`);
+        // Get the index reference during initialization for Pinecone v6+
+        pineconeIndex = pinecone.Index(pineconeIndexName);
+        console.log(`[API] Pinecone initialized with index: ${pineconeIndexName}`);
         
         // Test the Pinecone connection
         try {
-          await pineconeIndex.describeIndexStats();
-          console.log('[API] Successfully connected to Pinecone index');
+          const stats = await pineconeIndex.describeIndexStats();
+          console.log('[API] Successfully connected to Pinecone index. Stats:', {
+            dimension: stats.dimension,
+            indexFullness: stats.indexFullness,
+            totalVectorCount: stats.totalVectorCount
+          });
         } catch (error) {
           console.error('[API] Failed to connect to Pinecone index:', error.message);
+          console.error('Error details:', {
+            message: error.message,
+            code: error.code,
+            status: error.status
+          });
           throw new Error(`Failed to connect to Pinecone index: ${error.message}`);
         }
       } catch (error) {
@@ -249,16 +259,26 @@ const searchPinecone = async (query, topK = 3) => {
         throw new Error('Pinecone index not initialized');
       }
       
-      // Query the index using the latest API
-      const results = await pineconeIndex.query({
-        vector: queryEmbedding,
-        topK,
-        includeMetadata: true,
-        includeValues: false,
-        filter: {}
-      });
-      
-      return results.matches || [];
+      // Query the index using the latest API for v6+
+      try {
+        const queryResponse = await pineconeIndex.query({
+          vector: queryEmbedding,
+          topK,
+          includeMetadata: true,
+          includeValues: false,
+          filter: {}
+        });
+        
+        console.log(`[API] Successfully queried Pinecone. Found ${queryResponse.matches?.length || 0} matches`);
+        return queryResponse.matches || [];
+      } catch (error) {
+        console.error('[API] Error querying Pinecone:', {
+          message: error.message,
+          code: error.code,
+          status: error.status
+        });
+        throw new Error(`Failed to query Pinecone: ${error.message}`);
+      }
     } catch (error) {
       console.error('Failed to query Pinecone index:', error);
       console.error('Pinecone error details:', {
