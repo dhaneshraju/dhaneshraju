@@ -55,7 +55,12 @@ if (process.env.NODE_ENV === 'production') {
 const PINECONE_MIN_SCORE = 0.7;
 const PINECONE_TOP_K = 5;
 const PINECONE_QUERY_TIMEOUT = 20000; // 20 seconds
-const GROQ_MODEL = 'mixtral-8x7b-32768';
+
+// Groq model configuration
+// Using the latest recommended model from Groq
+const GROQ_MODEL = 'llama3-70b-8192';
+// Fallback model in case the primary is not available
+const GROQ_MODEL_FALLBACK = 'llama3-8b-8192';
 const GROQ_TEMPERATURE = 0.7;
 const GROQ_MAX_TOKENS = 2000;
 const GROQ_TIMEOUT = 30000; // 30 seconds
@@ -288,7 +293,7 @@ const queryPinecone = async (query) => {
   }
 };
 
-const generateResponse = async (messages, contextResults) => {
+const generateResponse = async (messages, contextResults, attempt = 1) => {
   const startTime = Date.now();
   let timeoutId;
   
@@ -332,41 +337,56 @@ Use the following context to answer questions. If you don't know the answer, say
       }))
     ];
     
+    // Choose the model to use (with fallback)
+    const modelToUse = attempt === 1 ? GROQ_MODEL : GROQ_MODEL_FALLBACK;
+    
     // Add timeout to the Groq API call
     const controller = new AbortController();
     timeoutId = setTimeout(() => controller.abort(), GROQ_TIMEOUT);
     
-    console.log(`[Groq] Sending request to ${GROQ_MODEL} with ${conversation.length} messages`);
+    console.log(`[Groq] Sending request to ${modelToUse} with ${conversation.length} messages`);
     
-    // Call Groq API
-    const response = await groq.chat.completions.create(
-      {
-        messages: conversation,
-        model: GROQ_MODEL,
-        temperature: GROQ_TEMPERATURE,
-        max_tokens: GROQ_MAX_TOKENS,
-      },
-      {
-        signal: controller.signal,
-        headers: {
-          'User-Agent': 'DhaneshPortfolio/1.0.0',
-          'Content-Type': 'application/json'
+    try {
+      // Call Groq API
+      const response = await groq.chat.completions.create(
+        {
+          messages: conversation,
+          model: modelToUse,
+          temperature: GROQ_TEMPERATURE,
+          max_tokens: GROQ_MAX_TOKENS,
+        },
+        {
+          signal: controller.signal,
+          headers: {
+            'User-Agent': 'DhaneshPortfolio/1.0.0',
+            'Content-Type': 'application/json'
+          }
         }
+      );
+      
+      clearTimeout(timeoutId);
+      const duration = Date.now() - startTime;
+      
+      if (!response?.choices?.[0]?.message?.content) {
+        console.warn('[Groq] Unexpected response format:', response);
+        throw new Error('Received invalid response format from AI service');
       }
-    );
-    
-    clearTimeout(timeoutId);
-    const duration = Date.now() - startTime;
-    
-    if (!response?.choices?.[0]?.message?.content) {
-      console.warn('[Groq] Unexpected response format:', response);
-      throw new Error('Received invalid response format from AI service');
+      
+      const responseContent = response.choices[0].message.content.trim();
+      console.log(`[Groq] Response generated in ${duration}ms (${responseContent.length} chars)`);
+      
+      return responseContent || 'I apologize, but I could not generate a response at this time.';
+      
+    } catch (apiError) {
+      // Handle model deprecation specifically
+      if (attempt === 1 && 
+          (apiError.message.includes('model_decommissioned') || 
+           apiError.message.includes('model not found'))) {
+        console.warn(`[Groq] Model ${modelToUse} not available, falling back to ${GROQ_MODEL_FALLBACK}`);
+        return generateResponse(messages, contextResults, attempt + 1);
+      }
+      throw apiError; // Re-throw other errors
     }
-    
-    const responseContent = response.choices[0].message.content.trim();
-    console.log(`[Groq] Response generated in ${duration}ms (${responseContent.length} chars)`);
-    
-    return responseContent || 'I apologize, but I could not generate a response at this time.';
     
   } catch (error) {
     if (timeoutId) clearTimeout(timeoutId);
@@ -378,7 +398,8 @@ Use the following context to answer questions. If you don't know the answer, say
       code: error.code,
       stack: process.env.NODE_ENV === 'development' ? error.stack : undefined,
       messageCount: Array.isArray(messages) ? messages.length : 0,
-      hasContext: Array.isArray(contextResults) && contextResults.length > 0
+      hasContext: Array.isArray(contextResults) && contextResults.length > 0,
+      attempt
     };
     
     console.error('[Groq] Error:', errorDetails);
@@ -398,6 +419,8 @@ Use the following context to answer questions. If you don't know the answer, say
       throw new Error('The AI model is currently unavailable. Please try again later.');
     } else if (error.message.includes('invalid_request') || error.message.includes('validation_error')) {
       throw new Error('Invalid request. Please try again with a different message.');
+    } else if (error.message.includes('model_decommissioned')) {
+      throw new Error('The AI model has been updated. Please refresh the page and try again.');
     }
     
     // Fallback to a generic error message
@@ -475,24 +498,38 @@ export default async function handler(req, res) {
     
     try {
       // Get relevant context from Pinecone
-      const context = await queryPinecone(userMessage);
-      console.log(`[API] Retrieved ${context.length} context items`);
+      let context = [];
+      try {
+        context = await queryPinecone(userMessage);
+        console.log(`[API] Retrieved ${context.length} context items`);
+      } catch (embeddingError) {
+        console.error('[API] Error getting context from Pinecone:', embeddingError);
+        // Continue without context if embedding fails
+        context = [];
+      }
       
-      // Generate response using the context
+      // Generate response using the context (or without it if context fetching failed)
       const responseText = await generateResponse(messages, context);
       
-      // Return successful response
-      return res.status(200).json({
+      // Prepare response data
+      const responseData = {
         success: true,
         response: responseText,
-        sources: context.map((item, index) => ({
+        timestamp: new Date().toISOString()
+      };
+      
+      // Only include sources if we have them
+      if (context.length > 0) {
+        responseData.sources = context.map((item, index) => ({
           id: index,
           source: item.source || 'unknown',
           text: item.text?.substring(0, 200) || '',
           score: item.score || 0
-        })),
-        timestamp: new Date().toISOString()
-      });
+        }));
+      }
+      
+      // Return successful response
+      return res.status(200).json(responseData);
       
     } catch (error) {
       console.error('[API] Error processing request:', error);
