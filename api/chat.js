@@ -266,25 +266,53 @@ const searchPinecone = async (query, topK = 3) => {
     }
     
     try {
-      if (!pineconeIndex) {
-        throw new Error('Pinecone index not initialized');
-      }
+    if (!pineconeIndex) {
+      throw new Error('Pinecone index not initialized');
+    }
+    
+    console.log('[API] Querying Pinecone with embedding length:', queryEmbedding.length);
+    console.log('[API] Pinecone index name:', pineconeIndexName);
+    console.log('[API] Pinecone environment:', pineconeEnvironment);
       
       // Query the index using the latest API for v6+
       try {
-        const queryResponse = await pineconeIndex.query({
-          vector: queryEmbedding,
-          topK,
-          includeMetadata: true,
-          includeValues: false,
-          filter: {
-            // Add a default filter to satisfy the API requirement
-            // This can be adjusted based on your actual data structure
-            source: { $eq: 'portfolio' } // Example filter
+        // First try with a more permissive query
+        let queryResponse;
+        
+        try {
+          // Try with a filter if you have specific metadata
+          queryResponse = await pineconeIndex.query({
+            vector: queryEmbedding,
+            topK: Math.min(topK * 2, 10), // Get more results to increase chances of matches
+            includeMetadata: true,
+            includeValues: false,
+            filter: {}
+          });
+          
+          // If no results, try without any filter
+          if (!queryResponse.matches || queryResponse.matches.length === 0) {
+            queryResponse = await pineconeIndex.query({
+              vector: queryEmbedding,
+              topK: Math.min(topK * 2, 10),
+              includeMetadata: true,
+              includeValues: false
+            });
           }
-        });
+        } catch (filterError) {
+          console.log('[API] Error with filtered query, trying without filter:', filterError.message);
+          // If filtered query fails, try without any filter
+          queryResponse = await pineconeIndex.query({
+            vector: queryEmbedding,
+            topK: Math.min(topK * 2, 10),
+            includeMetadata: true,
+            includeValues: false
+          });
+        }
         
         console.log(`[API] Successfully queried Pinecone. Found ${queryResponse.matches?.length || 0} matches`);
+        if (queryResponse.matches && queryResponse.matches.length > 0) {
+          console.log('[API] First match metadata keys:', Object.keys(queryResponse.matches[0].metadata || {}));
+        }
         return queryResponse.matches || [];
       } catch (error) {
         console.error('[API] Error querying Pinecone:', {
@@ -364,19 +392,19 @@ export default async function handler(req, res) {
 
   // CORS headers
   res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
-  res.setHeader('Content-Type', 'application/json');
-
-  // Handle preflight
-  if (req.method === 'OPTIONS') return res.status(200).end();
-
+  res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+  
+  // Handle preflight requests
+  if (req.method === 'OPTIONS') {
+    return res.status(200).end();
+  }
+  
   if (req.method !== 'POST') {
-    return res.status(405).json({
-      success: false,
-      error: 'method_not_allowed',
-      message: 'Only POST requests are supported',
-      requestId
+    return res.status(405).json({ 
+      success: false, 
+      error: 'method_not_allowed', 
+      message: 'Only POST requests are supported' 
     });
   }
 
