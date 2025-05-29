@@ -550,6 +550,8 @@ export default async function handler(req, res) {
     const responseText = await generateResponse(userQuery, searchResults);
 
     // Create response in the format expected by the frontend
+    // Create response in the format expected by the frontend
+    // Create response in the format expected by the frontend
     const response = {
       response: responseText,
       sources: (searchResults || []).map((result, index) => ({
