@@ -54,18 +54,61 @@ const getEmbedding = async (text) => {
 
 const queryPinecone = async (query) => {
   try {
+    console.log('Starting Pinecone query...');
+    
+    if (!query || typeof query !== 'string') {
+      throw new Error('Invalid query: Query must be a non-empty string');
+    }
+    
+    console.log('Generating embedding for query...');
     const vector = await getEmbedding(query);
+    
+    if (!vector || !Array.isArray(vector) || vector.length === 0) {
+      throw new Error('Failed to generate valid embedding vector');
+    }
+    
+    console.log('Connecting to Pinecone index:', indexName);
     const index = pinecone.index(indexName);
+    
+    if (!index) {
+      throw new Error('Failed to connect to Pinecone index');
+    }
+    
+    console.log('Sending query to Pinecone...');
     const result = await index.query({
       vector,
       topK: 3,
       includeMetadata: true,
       includeValues: false
     });
+    
+    console.log('Pinecone query successful, matches found:', (result.matches || []).length);
     return result.matches || [];
-  } catch (e) {
-    console.error('Pinecone query failed:', e.message);
-    throw new Error('Knowledge base query failed');
+    
+  } catch (error) {
+    console.error('Pinecone query failed:', {
+      message: error.message,
+      stack: error.stack,
+      name: error.name,
+      code: error.code,
+      status: error.status,
+      response: error.response?.data
+    });
+    
+    // Provide more specific error messages based on error type
+    let errorMessage = 'Knowledge base query failed';
+    
+    if (error.message.includes('ECONNREFUSED') || error.message.includes('ENOTFOUND')) {
+      errorMessage = 'Could not connect to the knowledge base service';
+    } else if (error.message.includes('401') || error.message.includes('unauthorized')) {
+      errorMessage = 'Authentication failed for knowledge base service';
+    } else if (error.message.includes('index not found')) {
+      errorMessage = `Knowledge base index not found: ${indexName}`;
+    } else if (error.message.includes('rate limit')) {
+      errorMessage = 'Rate limit exceeded for knowledge base service';
+    }
+    
+    throw new Error(errorMessage);
   }
 };
 
