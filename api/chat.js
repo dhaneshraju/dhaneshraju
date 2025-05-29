@@ -19,13 +19,33 @@ if (process.env.NODE_ENV === 'production') {
 
 const getEmbedding = async (text) => {
   try {
+    if (!text || typeof text !== 'string') {
+      throw new Error('Invalid input text for embedding');
+    }
+    
     const clean = text.trim().substring(0, 1000);
+    console.log('Generating embedding for text:', clean.substring(0, 50) + '...');
+    
     const res = await hf.featureExtraction({
       model: 'sentence-transformers/all-MiniLM-L6-v2',
       inputs: clean,
-      options: { wait_for_model: true }
+      options: { 
+        wait_for_model: true,
+        use_cache: true
+      }
     });
-    return Array.isArray(res[0]) ? res[0] : res;
+    
+    if (!res || !Array.isArray(res)) {
+      throw new Error('Invalid response from Hugging Face API');
+    }
+    
+    const embedding = Array.isArray(res[0]) ? res[0] : res;
+    if (!embedding || embedding.length === 0) {
+      throw new Error('Empty embedding received');
+    }
+    
+    console.log('Generated embedding with length:', embedding.length);
+    return embedding;
   } catch (e) {
     console.error('Embedding error:', e.message);
     throw new Error('Embedding failed');
