@@ -61,10 +61,9 @@ async function initializeServices() {
         index: process.env.PINECONE_INDEX
       });
       
-      // Initialize Pinecone with required configuration
+      // Initialize Pinecone with minimal configuration (matching backup)
       pinecone = new Pinecone({
-        apiKey: process.env.PINECONE_API_KEY,
-        environment: process.env.PINECONE_ENVIRONMENT || 'gcp-starter'  // Add default environment if not set
+        apiKey: process.env.PINECONE_API_KEY
       });
       
       console.log('Pinecone client initialized');

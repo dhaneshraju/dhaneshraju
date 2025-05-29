@@ -69,7 +69,7 @@ if (process.env.NODE_ENV === 'production') {
 const corsOptions = process.env.NODE_ENV === 'production' 
   ? {
       origin: [
-        'https://dhaneshraju.vercel.app',
+        'https://your-vercel-app-url.vercel.app',
         'https://*.vercel.app',
         'http://localhost:3000',
         'http://localhost:3001',

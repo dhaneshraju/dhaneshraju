@@ -1,8 +1,20 @@
+// import React from "react";
+// import ReactDOM from "react-dom/client";
+// import './index.css';
+// import App from "./App";
+
+// ReactDOM.createRoot(document.getElementById("root")).render(
+//   <React.StrictMode>
+//     <App />
+//   </React.StrictMode>
+// );
+
+
+
 import React from "react";
 import ReactDOM from "react-dom/client";
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
-import './styles/global.css';  // Import global styles first
-import './index.css';         // Then import component-specific styles
+import './index.css';
 import App from "./App";
 import About from "./pages/About";
 import LandingPage from "./pages/LandingPage";
