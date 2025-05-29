@@ -16,6 +16,19 @@ dotenv.config();
 const app = express();
 const port = process.env.PORT || 3000;
 
+// Trust first proxy (important for Vercel)
+app.set('trust proxy', 1);
+
+// Request logging middleware
+app.use((req, res, next) => {
+  const start = Date.now();
+  res.on('finish', () => {
+    const duration = Date.now() - start;
+    console.log(`[${new Date().toISOString()}] ${req.method} ${req.originalUrl} - ${res.statusCode} ${duration}ms`);
+  });
+  next();
+});
+
 // Get directory name in ES module
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -24,19 +37,11 @@ const __dirname = path.dirname(__filename);
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-app.post('/api/chat', async (req, res) => {
-  try {
-    const { message } = req.body;
+// Import the chat handler from api/chat.js
+import chatHandler from './api/chat.js';
 
-    // Example logic (replace this with your actual chat handler)
-    const response = `Echo: ${message}`;
-
-    res.status(200).json({ response });
-  } catch (err) {
-    console.error('Error in /api/chat:', err);
-    res.status(500).json({ error: 'Internal server error' });
-  }
-});
+// Mount the chat handler at /api/chat
+app.post('/api/chat', chatHandler);
 
 // Serve static files from the Vite build directory in production
 if (process.env.NODE_ENV === 'production') {
@@ -65,38 +70,34 @@ if (process.env.NODE_ENV === 'production') {
   });
 }
 
-// CORS configuration
-const corsOptions = process.env.NODE_ENV === 'production' 
-  ? {
-      origin: [
-        'https://your-vercel-app-url.vercel.app',
-        'https://*.vercel.app',
-        'http://localhost:3000',
-        'http://localhost:3001',
-        'http://localhost:5173',
-        'https://localhost:3000',
-        'https://localhost:3001',
-        'https://localhost:5173'
-      ],
-      credentials: true,
-      methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-      allowedHeaders: ['Content-Type', 'Authorization']
+// CORS configuration with improved security
+const allowedOrigins = [
+  'https://your-vercel-app-url.vercel.app',
+  'https://*.vercel.app',
+  'http://localhost:3000',
+  'http://localhost:3001',
+  'http://localhost:5173',
+  'https://localhost:3000',
+  'https://localhost:3001',
+  'https://localhost:5173',
+  'http://127.0.0.1:3000',
+  'https://127.0.0.1:3000'
+];
+
+const corsOptions = {
+  origin: (origin, callback) => {
+    if (!origin || allowedOrigins.includes(origin)) {
+      callback(null, true);
+    } else {
+      console.warn(`Blocked request from origin: ${origin}`);
+      callback(new Error('Not allowed by CORS'));
     }
-  : {
-      origin: [
-        'http://localhost:3000',
-        'https://localhost:3000',
-        'http://127.0.0.1:3000',
-        'https://127.0.0.1:3000',
-        'http://localhost:3001',
-        'https://localhost:3001',
-        'http://localhost:5173',
-        'https://localhost:5173',
-      ],
-      credentials: true,
-      methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-      allowedHeaders: ['Content-Type', 'Authorization']
-    };
+  },
+  credentials: true,
+  methods: ['GET', 'POST', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
+  optionsSuccessStatus: 200
+};
 
 app.use(cors(corsOptions));
 
@@ -116,9 +117,51 @@ if (process.env.NODE_ENV === 'production') {
   });
 }
 
-// Initialize Groq
+// Initialize Groq with environment variables
 const groq = new Groq({
-  apiKey: process.env.VITE_GROQ_API_KEY,
+  apiKey: process.env.VITE_GROQ_API_KEY || process.env.GROQ_API_KEY,
+});
+
+// Global error handler
+app.use((err, req, res, next) => {
+  console.error('Global error handler:', err);
+  
+  // Handle CORS errors
+  if (err.message === 'Not allowed by CORS') {
+    return res.status(403).json({
+      success: false,
+      error: 'cors_error',
+      message: 'Request not allowed by CORS policy'
+    });
+  }
+  
+  // Handle other errors
+  res.status(500).json({
+    success: false,
+    error: 'internal_server_error',
+    message: process.env.NODE_ENV === 'production' 
+      ? 'Internal server error' 
+      : err.message
+  });
+});
+
+// Handle 404 - Keep this as a last route
+app.use((req, res) => {
+  res.status(404).json({ 
+    success: false,
+    error: 'not_found',
+    message: 'The requested resource was not found' 
+  });
+});
+
+// Health check endpoint
+app.get('/health', (req, res) => {
+  res.status(200).json({
+    status: 'ok',
+    timestamp: new Date().toISOString(),
+    environment: process.env.NODE_ENV || 'development',
+    nodeVersion: process.version
+  });
 });
 
 // Initialize Pinecone

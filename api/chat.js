@@ -3,20 +3,20 @@ import { Pinecone } from '@pinecone-database/pinecone';
 import Groq from 'groq-sdk';
 import { HfInference } from '@huggingface/inference';
 
-// Initialize with environment variables
-const groqApiKey = process.env.GROQ_API_KEY;
-const pineconeApiKey = process.env.PINECONE_API_KEY;
-const pineconeHost = process.env.PINECONE_HOST;
-const hfApiKey = process.env.HUGGINGFACE_API_KEY;
-const pineconeIndexName = process.env.PINECONE_INDEX;
+// Initialize with environment variables (Vite prefixed for client-side compatibility)
+const groqApiKey = process.env.VITE_GROQ_API_KEY || process.env.GROQ_API_KEY;
+const pineconeApiKey = process.env.VITE_PINECONE_API_KEY || process.env.PINECONE_API_KEY;
+const pineconeEnvironment = process.env.VITE_PINECONE_ENVIRONMENT || process.env.PINECONE_ENVIRONMENT || 'us-west1-gcp';
+const hfApiKey = process.env.VITE_HUGGINGFACE_API_KEY || process.env.HUGGINGFACE_API_KEY;
+const pineconeIndexName = process.env.VITE_PINECONE_INDEX || process.env.PINECONE_INDEX;
 
 // Update the validation object
 const requiredVars = {
-  'GROQ_API_KEY': groqApiKey,
-  'PINECONE_API_KEY': pineconeApiKey,
-  'PINECONE_INDEX': pineconeIndexName,
-  'PINECONE_HOST': pineconeHost,
-  'HUGGINGFACE_API_KEY': hfApiKey
+  'VITE_GROQ_API_KEY or GROQ_API_KEY': groqApiKey,
+  'VITE_PINECONE_API_KEY or PINECONE_API_KEY': pineconeApiKey,
+  'VITE_PINECONE_INDEX or PINECONE_INDEX': pineconeIndexName,
+  'VITE_PINECONE_ENVIRONMENT or PINECONE_ENVIRONMENT': pineconeEnvironment,
+  'VITE_HUGGINGFACE_API_KEY or HUGGINGFACE_API_KEY': hfApiKey
 };
 
 const missingVars = Object.entries(requiredVars)
@@ -47,14 +47,15 @@ async function initializeClients() {
         timeout: 10000
       });
 
-      // Initialize Pinecone client with just the API key as a string
+      // Initialize Pinecone client with environment
       pinecone = new Pinecone({
         apiKey: pineconeApiKey,
-        environment: process.env.PINECONE_ENVIRONMENT
+        environment: pineconeEnvironment
       });
       
       // Get the index reference during initialization
       pineconeIndex = pinecone.Index(pineconeIndexName);
+      console.log(`[API] Pinecone initialized with index: ${pineconeIndexName}, environment: ${pineconeEnvironment}`);
 
       // Initialize Hugging Face
       hf = new HfInference(hfApiKey);
@@ -217,11 +218,26 @@ const searchPinecone = async (query, topK = 3) => {
       return results.matches || [];
     } catch (error) {
       console.error('Failed to query Pinecone index:', error);
+      console.error('Pinecone error details:', {
+        message: error.message,
+        code: error.code,
+        status: error.status,
+        indexName: import.meta.env.VITE_PINECONE_INDEX_NAME,
+        environment: import.meta.env.VITE_PINECONE_ENVIRONMENT
+      });
       return [];
     }
     
   } catch (error) {
     console.error('Error searching Pinecone:', error);
+    console.error('Pinecone search error details:', {
+      message: error.message,
+      code: error.code,
+      status: error.status,
+      indexName: pineconeIndexName,
+      environment: pineconeEnvironment,
+      stack: error.stack
+    });
     return [];
   }
 };
@@ -252,8 +268,14 @@ async function generateResponse(query, context) {
     return response.choices[0]?.message?.content || "I couldn't generate a response based on the available information.";
 
   } catch (error) {
-    console.error('Error generating response:', error.message);
-    return "I'm sorry, I encountered an error while processing your request.";
+    console.error('Error generating response:', error);
+    console.error('Groq API error details:', {
+      message: error.message,
+      code: error.code,
+      status: error.status,
+      stack: error.stack
+    });
+    return "I'm sorry, I encountered an error while processing your request. Please try again later.";
   }
 }
 
