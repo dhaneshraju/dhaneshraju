@@ -384,7 +384,7 @@ If you don't know something specific, say you don't have that information but ca
         { role: 'system', content: systemPrompt },
         { role: 'user', content: query }
       ],
-      model: 'mixtral-8x7b-32768',
+      model: 'llama3-70b-8192',
       temperature: 0.7,
       max_tokens: 2000,
       top_p: 0.9,
