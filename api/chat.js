@@ -28,12 +28,41 @@ if (missingVars.length > 0) {
 }
 
 // Initialize clients with error handling
-let groq, pinecone, hf;
+let groq, pinecone, hf, pineconeInitialized = false;
 
+// Initialize Pinecone client
+const initPinecone = async () => {
+  if (pineconeInitialized) return true;
+  
+  try {
+    console.log('[Pinecone] Initializing Pinecone client...');
+    
+    if (!pineconeApiKey) {
+      throw new Error('PINECONE_API_KEY is not set in environment variables');
+    }
+    
+    pinecone = new Pinecone({
+      apiKey: pineconeApiKey,
+      environment: pineconeEnv
+    });
+    
+    // Test the connection by listing indexes
+    await pinecone.listIndexes();
+    pineconeInitialized = true;
+    console.log('[Pinecone] Client initialized successfully');
+    return true;
+  } catch (error) {
+    console.error('[Pinecone] Failed to initialize:', error.message);
+    pineconeInitialized = false;
+    return false;
+  }
+};
+
+// Initialize other clients
 try {
   groq = new Groq({ apiKey: groqApiKey });
   hf = new HfInference(hfApiKey);
-  // Pinecone will be initialized on first use to prevent connection issues
+  console.log('[API] Groq and HuggingFace clients initialized');
 } catch (error) {
   console.error('Failed to initialize API clients:', error);
   throw new Error(`Failed to initialize API clients: ${error.message}`);
@@ -234,60 +263,70 @@ const queryPinecone = async (query) => {
     
     if (!query || typeof query !== 'string' || query.trim() === '') {
       console.error('[Pinecone] Invalid query:', query);
-      throw new Error('Query must be a non-empty string');
+      return [];
+    }
+    
+    // Initialize Pinecone if not already done
+    const initialized = await initPinecone();
+    if (!initialized) {
+      console.error('[Pinecone] Client not initialized, skipping vector search');
+      return [];
     }
     
     // Add timeout to the Pinecone query
     const controller = new AbortController();
-    timeoutId = setTimeout(() => controller.abort(), PINECONE_QUERY_TIMEOUT);
+    timeoutId = setTimeout(() => {
+      controller.abort();
+      console.warn('[Pinecone] Query timed out');
+    }, PINECONE_QUERY_TIMEOUT);
     
     // Get the embedding for the query
     console.log('[Pinecone] Generating embedding for query...');
     const embedding = await getEmbedding(query);
     
     if (!Array.isArray(embedding) || embedding.length === 0) {
-      throw new Error('Failed to generate valid embedding for query');
+      console.error('[Pinecone] Failed to generate valid embedding');
+      return [];
     }
     
-    // Initialize Pinecone if not already done
-    if (!pinecone) {
-      console.log('[Pinecone] Initializing Pinecone client...');
-      pinecone = new Pinecone({
-        apiKey: pineconeApiKey,
-        environment: pineconeEnv
-      });
-    }
-    
-    // Query Pinecone
+    // Get the index
     console.log(`[Pinecone] Querying index: ${pineconeIndexName}`);
     const index = pinecone.index(pineconeIndexName);
     
+    // Query the index
     const results = await index.query({
       vector: embedding,
       topK: PINECONE_TOP_K,
       includeMetadata: true,
-      includeValues: false,
-    }).catch(error => {
-      console.error('[Pinecone] Query error:', error);
-      throw new Error(`Query failed: ${error.message}`);
+      includeValues: false
     });
     
     clearTimeout(timeoutId);
     const duration = Date.now() - startTime;
     
-    if (!results || !Array.isArray(results.matches)) {
-      console.warn('[Pinecone] Unexpected response format:', results);
+    if (!results?.matches) {
+      console.warn('[Pinecone] No matches in response:', results);
       return [];
     }
     
-    // Filter out low-scoring results and format the response
+    // Process and filter results
     const filteredResults = results.matches
-      .filter(match => match.score >= PINECONE_MIN_SCORE)
+      .filter(match => {
+        const isValid = match?.score >= PINECONE_MIN_SCORE && 
+                      match?.metadata?.text?.trim();
+        if (!isValid) {
+          console.warn('[Pinecone] Filtered out low-scoring or invalid match:', {
+            score: match?.score,
+            hasText: !!match?.metadata?.text?.trim()
+          });
+        }
+        return isValid;
+      })
       .map((match, index) => ({
         id: match.id || `result-${index}`,
         score: match.score || 0,
-        text: match.metadata?.text || '',
-        source: match.metadata?.source || 'unknown',
+        text: match.metadata.text.trim(),
+        source: match.metadata.source || 'unknown',
         metadata: match.metadata || {}
       }));
     
@@ -302,23 +341,16 @@ const queryPinecone = async (query) => {
   } catch (error) {
     if (timeoutId) clearTimeout(timeoutId);
     
-    const errorDetails = {
+    const errorInfo = {
       message: error.message,
       name: error.name,
-      type: error.type,
       code: error.code,
-      stack: process.env.NODE_ENV === 'development' ? error.stack : undefined,
       query: query?.substring(0, 100)
     };
     
-    console.error('[Pinecone] Error in queryPinecone:', errorDetails);
+    console.error('[Pinecone] Error in queryPinecone:', errorInfo);
     
-    // Don't throw the error, just log it and return an empty array
-    // This allows the chat to continue with just the LLM's knowledge
-    if (process.env.NODE_ENV === 'development') {
-      console.warn('[Pinecone] Continuing without vector search results due to error');
-    }
-    
+    // Don't throw, just return empty array to allow chat to continue
     return [];
   }
 };
