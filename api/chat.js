@@ -69,31 +69,63 @@ const EMBEDDING_MODEL = 'sentence-transformers/all-MiniLM-L6-v2';
 const EMBEDDING_MAX_LENGTH = 512; // Max characters to process
 const EMBEDDING_TIMEOUT = 10000; // 10 seconds
 
+// Simple sentence embedding function as a fallback
+const simpleEmbedding = (text) => {
+  // This is a very basic embedding that just converts text to numbers
+  // It's not as good as a real embedding model but can work as a fallback
+  const cleanText = text.toLowerCase().replace(/[^a-z0-9\s]/g, '');
+  const words = cleanText.split(/\s+/).filter(w => w.length > 0);
+  const embedding = new Array(384).fill(0); // Using 384 dimensions to match common models
+  
+  // Simple word frequency based embedding
+  words.forEach(word => {
+    // Simple hash to distribute values
+    let hash = 0;
+    for (let i = 0; i < word.length; i++) {
+      hash = (hash * 31 + word.charCodeAt(i)) % 384;
+    }
+    embedding[hash] = (embedding[hash] || 0) + 1;
+  });
+  
+  // Normalize the vector
+  const norm = Math.sqrt(embedding.reduce((sum, val) => sum + val * val, 0)) || 1;
+  return embedding.map(val => val / norm);
+};
+
 /**
  * Generates an embedding vector for the given text using Hugging Face's inference API
+ * with fallback to a simple embedding method if the API fails
  * @param {string} text - The input text to generate embedding for
+ * @param {number} attempt - Current attempt number (for retries)
  * @returns {Promise<number[]>} - The embedding vector
- * @throws {Error} If the embedding generation fails
  */
-const getEmbedding = async (text) => {
+const getEmbedding = async (text, attempt = 1) => {
   const startTime = Date.now();
   let timeoutId;
   
+  // Simple validation
+  if (!text || typeof text !== 'string') {
+    console.warn('[Embedding] Invalid input, using fallback embedding');
+    return simpleEmbedding(String(text || ''));
+  }
+  
+  // Clean and truncate the input text
+  const clean = text.trim().substring(0, EMBEDDING_MAX_LENGTH);
+  if (!clean) {
+    console.warn('[Embedding] Empty text after cleaning, using fallback');
+    return simpleEmbedding('');
+  }
+  
+  console.log(`[Embedding] Generating for text (${clean.length} chars):`, 
+    clean.substring(0, 50) + (clean.length > 50 ? '...' : ''));
+  
+  // If no API key is provided, use the simple embedding
+  if (!hfApiKey) {
+    console.warn('[Embedding] No API key provided, using fallback embedding');
+    return simpleEmbedding(clean);
+  }
+  
   try {
-    // Input validation
-    if (!text || typeof text !== 'string') {
-      throw new Error('Input text must be a non-empty string');
-    }
-    
-    // Clean and truncate the input text
-    const clean = text.trim().substring(0, EMBEDDING_MAX_LENGTH);
-    if (!clean) {
-      throw new Error('Text is empty after cleaning');
-    }
-    
-    console.log(`[Embedding] Generating for text (${clean.length} chars):`, 
-      clean.substring(0, 50) + (clean.length > 50 ? '...' : ''));
-    
     // Initialize Hugging Face client if not already done
     if (!hf) {
       console.log('[Embedding] Initializing Hugging Face client...');
@@ -121,7 +153,8 @@ const getEmbedding = async (text) => {
             headers: {
               ...(options?.headers || {}),
               'User-Agent': 'DhaneshPortfolio/1.0.0',
-              'Content-Type': 'application/json'
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${hfApiKey}`
             }
           });
         }
@@ -163,35 +196,32 @@ const getEmbedding = async (text) => {
       
       console.error('[Embedding] API error:', errorDetails);
       
-      // Provide more specific error messages
-      if (error.name === 'AbortError') {
-        throw new Error('Embedding generation timed out');
-      } else if (error.message.includes('ECONNREFUSED') || error.message.includes('ENOTFOUND')) {
-        throw new Error('Could not connect to the embedding service');
-      } else if (error.message.includes('401') || error.message.includes('unauthorized')) {
-        throw new Error('Authentication failed for embedding service');
-      } else if (error.message.includes('rate limit') || error.message.includes('quota')) {
-        throw new Error('Embedding service rate limit exceeded');
-      } else if (error.message.includes('model') && error.message.includes('not found')) {
-        throw new Error('Embedding model not found');
+      // If this is the first attempt and the error is retryable, try once more
+      if (attempt === 1 && (
+        error.name === 'AbortError' ||
+        error.message.includes('ECONNREFUSED') ||
+        error.message.includes('ENOTFOUND') ||
+        error.message.includes('fetch')
+      )) {
+        console.warn('[Embedding] Retrying embedding generation...');
+        return getEmbedding(text, attempt + 1);
       }
       
-      throw new Error(`Embedding generation failed: ${error.message}`);
+      // For other errors, use the fallback embedding
+      console.warn('[Embedding] Using fallback embedding due to error');
+      return simpleEmbedding(clean);
     }
   } catch (error) {
     if (timeoutId) clearTimeout(timeoutId);
     
-    const errorDetails = {
+    console.error('[Embedding] Unexpected error, using fallback embedding:', {
       message: error.message,
       name: error.name,
-      stack: process.env.NODE_ENV === 'development' ? error.stack : undefined,
       text: text?.substring(0, 100)
-    };
+    });
     
-    console.error('[Embedding] Critical error:', errorDetails);
-    
-    // Re-throw with a consistent error format
-    throw new Error(`Failed to generate embedding: ${error.message}`);
+    // Use the fallback embedding in case of any unexpected errors
+    return simpleEmbedding(clean);
   }
 };
 
