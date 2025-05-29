@@ -30,6 +30,7 @@ if (missingVars.length > 0) {
 
 // Initialize clients
 let groq, pinecone, hf;
+let pineconeIndex; // Store the index instance
 
 // Initialize clients with retry logic
 async function initializeClients() {
@@ -51,11 +52,11 @@ async function initializeClients() {
         }
       });
 
-      // Initialize Pinecone client
-      pinecone = new Pinecone({
-        apiKey: pineconeApiKey,
-        environment: pineconeHost.includes('us-east1') ? 'gcp-starter' : 'us-west1'
-      });
+      // Initialize Pinecone client with just the API key as a string
+      pinecone = new Pinecone(pineconeApiKey);
+      
+      // Get the index reference during initialization
+      pineconeIndex = pinecone.Index(pineconeIndexName);
 
       // Initialize Hugging Face
       hf = new HfInference(hfApiKey, {
@@ -209,13 +210,13 @@ const searchPinecone = async (query, topK = 3) => {
       return [];
     }
     
-    let index;
     try {
-        // Get the index reference
-      const index = pinecone.index(pineconeIndexName);
+      if (!pineconeIndex) {
+        throw new Error('Pinecone index not initialized');
+      }
       
       // Query the index
-      const results = await index.query({
+      const results = await pineconeIndex.query({
         vector: queryEmbedding,
         topK,
         includeMetadata: true,
