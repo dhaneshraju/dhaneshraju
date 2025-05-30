@@ -70,7 +70,6 @@ __tests__/__snapshots__/
 documents/
 scripts/
 *.docx
-*.pdf
 *.rtf
 
 # Pinecone index scripts
