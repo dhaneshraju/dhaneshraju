@@ -248,18 +248,63 @@ const VoiceAssistant = ({ isOpen, onClose, inputMode, onInputModeChange, onAISpe
     recognitionRef.current = recognition;
 
     return () => {
+      // Stop any ongoing speech synthesis
+      if (window.speechSynthesis) {
+        window.speechSynthesis.cancel();
+      }
+      
+      // Stop any ongoing speech recognition
       if (recognitionRef.current) {
-        recognitionRef.current.stop();
+        try {
+          recognitionRef.current.stop();
+        } catch (e) {
+          console.error('Error stopping recognition on cleanup:', e);
+        }
         recognitionRef.current = null;
       }
+      
+      // Clear any ongoing timeouts
+      const highestTimeoutId = setTimeout(() => {}, 0);
+      for (let i = 0; i < highestTimeoutId; i++) {
+        clearTimeout(i);
+      }
+      
+      // Reset state
+      setIsAISpeaking(false);
+      setIsListening(false);
+      setTranscript('');
+      setError('');
     };
   }, []);
+
+  // Reference to track the current speech synthesis utterance
+  const currentUtterance = useRef(null);
+
+  // Stop any ongoing speech synthesis
+  const stopSpeaking = useCallback(() => {
+    if (window.speechSynthesis) {
+      window.speechSynthesis.cancel();
+      setIsAISpeaking(false);
+      if (onAISpeakingChange) {
+        onAISpeakingChange(false);
+      }
+    }
+    if (currentUtterance.current) {
+      currentUtterance.current = null;
+    }
+  }, [onAISpeakingChange]);
 
   // Toggle listening state
   const toggleListening = useCallback(() => {
     if (inputMode === 'text') {
       handleQuery(inputText);
       setInputText('');
+      return;
+    }
+
+    // If AI is speaking, stop the speech
+    if (isAISpeaking) {
+      stopSpeaking();
       return;
     }
 
@@ -278,17 +323,25 @@ const VoiceAssistant = ({ isOpen, onClose, inputMode, onInputModeChange, onAISpe
       setError('');
       setTranscript('');
       
-      // Small delay to ensure any previous recognition is fully stopped
-      setTimeout(() => {
-        try {
-          recognitionRef.current.start();
-        } catch (err) {
-          console.error('Error starting recognition:', err);
-          setError('Failed to start voice recognition. Please try again.');
-        }
-      }, 100);
+      // Request microphone permission only when needed
+      navigator.mediaDevices.getUserMedia({ audio: true })
+        .then(() => {
+          // Small delay to ensure any previous recognition is fully stopped
+          setTimeout(() => {
+            try {
+              recognitionRef.current.start();
+            } catch (err) {
+              console.error('Error starting recognition:', err);
+              setError('Failed to start voice recognition. Please try again.');
+            }
+          }, 100);
+        })
+        .catch(err => {
+          console.error('Microphone access denied:', err);
+          setError('Microphone access was denied. Please allow microphone access to use voice input.');
+        });
     }
-  }, [isListening, inputMode, inputText]);
+  }, [isListening, inputMode, inputText, isAISpeaking, stopSpeaking]);
 
   // Toggle input mode between voice and text
   const toggleInputMode = useCallback(() => {
@@ -417,21 +470,51 @@ const VoiceAssistant = ({ isOpen, onClose, inputMode, onInputModeChange, onAISpe
       // Speak the response if speech synthesis is available
       if (window.speechSynthesis) {
         try {
+          // Cancel any ongoing speech
+          window.speechSynthesis.cancel();
+          
           const utterance = new SpeechSynthesisUtterance(assistantMessage);
-          const voices = window.speechSynthesis.getVoices();
+          
+          // Store the current utterance for potential cancellation
+          currentUtterance.current = utterance;
+          
+          // Get available voices
+          let voices = window.speechSynthesis.getVoices();
+          
+          // If voices aren't loaded yet, wait for them
+          if (voices.length === 0) {
+            voices = await new Promise(resolve => {
+              const checkVoices = () => {
+                const availableVoices = window.speechSynthesis.getVoices();
+                if (availableVoices.length > 0) {
+                  resolve(availableVoices);
+                } else {
+                  window.speechSynthesis.onvoiceschanged = checkVoices;
+                }
+              };
+              checkVoices();
+            });
+          }
+          
+          // Try to find a good voice
           const preferredVoice = voices.find(voice => 
-            voice.name.includes('Google') || 
-            voice.name.includes('Samantha') ||
+            (voice.name.includes('Google') || 
+             voice.name.includes('Samantha') ||
+             voice.name.includes('Karen') || // Common Australian voice
+             voice.name.includes('Daniel') || // Common UK voice
+             voice.name.includes('Zira') || // Common Windows voice
+             voice.name.includes('David') || // Common Windows voice
+             voice.lang.startsWith('en')) &&
             voice.lang.startsWith('en')
-          );
+          ) || (voices.length > 0 ? voices[0] : null);
           
           if (preferredVoice) {
             utterance.voice = preferredVoice;
             utterance.rate = 1.0;
             utterance.pitch = 1.0;
-          } else if (voices.length > 0) {
-            // Use the first available voice if no preferred voice found
-            utterance.voice = voices[0];
+            utterance.lang = preferredVoice.lang;
+            
+            console.log('Using voice:', preferredVoice.name, 'Language:', preferredVoice.lang);
           }
           
           // Handle speech synthesis events
@@ -449,6 +532,7 @@ const VoiceAssistant = ({ isOpen, onClose, inputMode, onInputModeChange, onAISpe
             if (onAISpeakingChange) {
               onAISpeakingChange(false);
             }
+            currentUtterance.current = null;
           };
           
           utterance.onerror = (event) => {
@@ -457,13 +541,32 @@ const VoiceAssistant = ({ isOpen, onClose, inputMode, onInputModeChange, onAISpe
             if (onAISpeakingChange) {
               onAISpeakingChange(false);
             }
+            currentUtterance.current = null;
           };
           
           console.log('Starting speech synthesis with voice:', utterance.voice?.name || 'default');
-          window.speechSynthesis.speak(utterance);
+          
+          // Small delay to ensure any previous speech is fully stopped
+          setTimeout(() => {
+            try {
+              window.speechSynthesis.speak(utterance);
+            } catch (err) {
+              console.error('Error starting speech synthesis:', err);
+              setIsAISpeaking(false);
+              if (onAISpeakingChange) {
+                onAISpeakingChange(false);
+              }
+              currentUtterance.current = null;
+            }
+          }, 100);
         } catch (speechError) {
           console.error('Error in speech synthesis:', speechError);
           // Don't fail the whole request if speech synthesis fails
+          setIsAISpeaking(false);
+          if (onAISpeakingChange) {
+            onAISpeakingChange(false);
+          }
+          currentUtterance.current = null;
         }
       }
     } catch (error) {
@@ -613,7 +716,7 @@ const VoiceAssistant = ({ isOpen, onClose, inputMode, onInputModeChange, onAISpe
             <select 
               value={language}
               onChange={handleLanguageChange}
-              className="text-xs bg-gray-700 text-white rounded p-1 border border-gray-600"
+              className="text-xs bg-gray-700 text-white rounded p-1 border border-gray-600 h-8 flex-shrink-0"
               title="Select language"
             >
               <option value="en-US">English (US)</option>
@@ -626,16 +729,31 @@ const VoiceAssistant = ({ isOpen, onClose, inputMode, onInputModeChange, onAISpe
               <option value="en-ZA">English (South Africa)</option>
             </select>
           )}
+          
           {/* Toggle input mode button */}
           <button
             onClick={toggleInputMode}
-            className={`p-2 rounded-full ${
+            className={`p-1.5 rounded-full flex-shrink-0 ${
               inputMode === 'text' ? 'bg-blue-600' : 'bg-gray-700 hover:bg-gray-600'
             } text-white transition-colors`}
             title={inputMode === 'text' ? 'Switch to voice input' : 'Switch to text input'}
           >
-            {inputMode === 'text' ? <Mic size={18} /> : <Type size={18} />}
+            {inputMode === 'text' ? <Mic size={16} /> : <Type size={16} />}
           </button>
+          
+          {/* Stop speaking button - shown only when AI is speaking */}
+          {isAISpeaking && (
+            <button
+              onClick={stopSpeaking}
+              className="p-1.5 rounded-full bg-red-500 hover:bg-red-600 text-white transition-colors flex-shrink-0"
+              title="Stop speaking"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <rect x="6" y="4" width="4" height="16" rx="1"/>
+                <rect x="14" y="4" width="4" height="16" rx="1"/>
+              </svg>
+            </button>
+          )}
 
           {/* Input field or voice status */}
           {inputMode === 'text' ? (
@@ -662,7 +780,7 @@ const VoiceAssistant = ({ isOpen, onClose, inputMode, onInputModeChange, onAISpe
                   isListening ? (
                     <span className="text-blue-400">Listening...</span>
                   ) : (
-                    'Click the microphone to speak'
+                    'Click to speak'
                   )
                 ) : (
                   <div className="space-y-1">
@@ -691,7 +809,7 @@ const VoiceAssistant = ({ isOpen, onClose, inputMode, onInputModeChange, onAISpe
           <button
             onClick={toggleListening}
             disabled={inputMode === 'voice' && (!browserSupport.hasSpeechRecognition || !(browserSupport.isSecureContext || (process.env.NODE_ENV === 'development' && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'))))}
-            className={`p-2 rounded-full ${
+            className={`p-1.5 rounded-full flex-shrink-0 ${
               isListening 
                 ? 'bg-red-500 hover:bg-red-600' 
                 : 'bg-blue-500 hover:bg-blue-600'
@@ -699,11 +817,11 @@ const VoiceAssistant = ({ isOpen, onClose, inputMode, onInputModeChange, onAISpe
             title={isListening ? 'Stop listening' : inputMode === 'text' ? 'Send message' : 'Start listening'}
           >
             {inputMode === 'text' ? (
-              <Send size={18} />
+              <Send size={16} />
             ) : isListening ? (
-              <MicOff size={18} />
+              <MicOff size={16} />
             ) : (
-              <Mic size={18} />
+              <Mic size={16} />
             )}
           </button>
         </div>

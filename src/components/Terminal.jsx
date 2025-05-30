@@ -98,7 +98,7 @@ const Terminal = forwardRef(({ messages = [], speed = 50, showCursor = true, onC
   return (
     <div 
       ref={terminalRef}
-      className="terminal-window font-mono text-sm sm:text-base text-green-400 bg-black/70 backdrop-blur-sm border border-green-900/50 rounded-md p-4 h-48 sm:h-64 w-full max-w-2xl overflow-y-auto transition-opacity duration-300"
+      className="terminal-window font-mono text-sm sm:text-base text-green-400 bg-black/70 backdrop-blur-sm border border-green-900/50 rounded-md p-4 h-[30vh] min-h-[200px] max-h-[400px] w-full max-w-2xl overflow-y-auto transition-opacity duration-300"
       style={{ opacity: isVisible ? 1 : 0 }}
     >
       <div className="terminal-header flex items-center gap-2 mb-3 pb-2 border-b border-green-900/30">

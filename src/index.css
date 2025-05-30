@@ -3,6 +3,13 @@
 @tailwind utilities;
 
 /* CSS Reset */
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
 *, *::before, *::after {
   box-sizing: border-box;
   margin: 0;
@@ -96,5 +103,21 @@ canvas {
   body {
     background: white;
     color: black;
+  }
+}
+
+
+:root {
+  font-size: 16px; /* or 62.5% for 10px base for easier rem calculations */
+}
+
+
+html {
+  font-size: 16px;
+}
+
+@media (min-width: 640px) {
+  html {
+    font-size: calc(16px + 0.2vw);
   }
 }
