@@ -3,6 +3,10 @@ import { motion, AnimatePresence } from "framer-motion";
 import { Canvas, useFrame, useThree } from '@react-three/fiber';
 import { OrbitControls, Html, Sphere, Text } from '@react-three/drei';
 import { Github, Linkedin, Twitter, Mail, ExternalLink, Code, Book, Brain, PanelTop, Server, Cpu } from 'lucide-react';
+
+// Import PDF files
+import CV from '../assets/Dhanesh_Raju_CV.pdf';
+import PersonalStatement from '../assets/Dhanesh_Raju_Personal_Statement.pdf';
 import { gsap } from 'gsap';
 import DynamicMusicPlayer from '../components/DynamicMusicPlayer';
 import './AboutPage.css';
@@ -812,33 +816,20 @@ export default function AboutPage() {
     setIsDownloading(true);
     
     const files = [
-      { name: 'Dhanesh_Raju_CV.pdf', displayName: 'Dhanesh_Raju_CV.pdf' },
-      { name: 'Dhanesh_Raju_Personal_Statement.pdf', displayName: 'Dhanesh_Raju_Personal_Statement.pdf' }
+      { url: CV, name: 'Dhanesh_Raju_CV.pdf' },
+      { url: PersonalStatement, name: 'Dhanesh_Raju_Personal_Statement.pdf' }
     ];
     
     // Helper function to trigger download
     const downloadFile = (file) => {
-      return new Promise((resolve, reject) => {
-        // Use the public URL in production, or relative path in development
-        const fileUrl = process.env.NODE_ENV === 'production' 
-          ? `${window.location.origin}/${file.name}`
-          : `/${file.name}`;
-        
+      return new Promise((resolve) => {
         const link = document.createElement('a');
-        link.href = fileUrl;
-        link.download = file.displayName;
-        link.target = '_blank';
-        link.rel = 'noopener noreferrer';
-        
-        // Add to body, click and remove
+        link.href = file.url;
+        link.download = file.name;
         document.body.appendChild(link);
         link.click();
         document.body.removeChild(link);
-        
-        // Small delay to ensure the download starts
-        setTimeout(() => {
-          resolve();
-        }, 100);
+        resolve();
       });
     };
     
