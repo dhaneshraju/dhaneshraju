@@ -813,19 +813,42 @@ export default function AboutPage() {
     
     const files = [
       { name: 'Dhanesh_Raju_CV.pdf', displayName: 'Dhanesh_Raju_CV.pdf' },
-      { name: 'Dhanesh_Raju_Personal_Statement.pdf', displayName: 'Dhanesh_Raju_Personal_Statement.pdf' } // Second file with same content for demo
+      { name: 'Dhanesh_Raju_Personal_Statement.pdf', displayName: 'Dhanesh_Raju_Personal_Statement.pdf' }
     ];
     
     // Helper function to trigger download
     const downloadFile = (file) => {
-      return new Promise((resolve) => {
-        const link = document.createElement('a');
-        link.href = `/${file.name}`;
-        link.download = file.displayName;
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
-        resolve();
+      return new Promise((resolve, reject) => {
+        try {
+          // First, fetch the file to ensure it exists and is accessible
+          fetch(process.env.PUBLIC_URL + '/' + file.name)
+            .then(response => {
+              if (!response.ok) {
+                throw new Error(`HTTP error! status: ${response.status}`);
+              }
+              return response.blob();
+            })
+            .then(blob => {
+              const url = window.URL.createObjectURL(blob);
+              const link = document.createElement('a');
+              link.href = url;
+              link.setAttribute('download', file.displayName);
+              document.body.appendChild(link);
+              link.click();
+              
+              // Clean up
+              window.URL.revokeObjectURL(url);
+              document.body.removeChild(link);
+              resolve();
+            })
+            .catch(error => {
+              console.error('Error downloading file:', error);
+              reject(error);
+            });
+        } catch (error) {
+          console.error('Error in download process:', error);
+          reject(error);
+        }
       });
     };
     
