@@ -13,7 +13,7 @@ import { useNavigate } from 'react-router-dom';
 
 
 // AI Engineer Profile Image URL
-const profileImage = '/profile-image.jpg' || defaultProfileImage;
+const profileImage = defaultProfileImage;
  // Place your image in public folder
 // Add this before the AboutPage component
 
@@ -103,8 +103,8 @@ const projectsData = [
     category: "Robotics",
     categoryColor: "#00FFFF",
     demoUrl: "#",
-    repoUrl: "https://github.com/dhaneshraju/turtlebot3-control", // Update if private
-    image: "/projects/turtlebot.jpg",
+    // repoUrl: "https://github.com/dhaneshraju/turtlebot3-control", // Update if private
+    // image: "/projects/turtlebot.jpg",
     metrics: { stability: 0.9, adaptability: 0.88, innovation: 0.92 }
   },
   {
@@ -115,8 +115,8 @@ const projectsData = [
     category: "Ethical AI",
     categoryColor: "#ADFF2F",
     demoUrl: "#",
-    repoUrl: "https://github.com/dhaneshraju/abuse-detector",
-    image: "/projects/abuse-nlp.jpg",
+    // repoUrl: "https://github.com/dhaneshraju/abuse-detector",
+    // image: "/projects/abuse-nlp.jpg",
     metrics: { accuracy: 0.87, recall: 0.82, ethics: 0.95 }
   },
   {
@@ -127,8 +127,8 @@ const projectsData = [
     category: "Medical AI",
     categoryColor: "#FF4500",
     demoUrl: "#",
-    repoUrl: "https://github.com/dhaneshraju/med-ai-diagnostics",
-    image: "/projects/medical-ai.jpg",
+    // repoUrl: "https://github.com/dhaneshraju/med-ai-diagnostics",
+    // image: "/projects/medical-ai.jpg",
     metrics: { accuracy: 0.91, interpretability: 0.86, impact: 0.9 }
   },
   {
@@ -139,8 +139,8 @@ const projectsData = [
     category: "Time-Series AI",
     categoryColor: "#1E90FF",
     demoUrl: "#",
-    repoUrl: "https://github.com/dhaneshraju/sleep-stage-classifier",
-    image: "/projects/sleep-ai.jpg",
+    // repoUrl: "https://github.com/dhaneshraju/sleep-stage-classifier",
+    // image: "/projects/sleep-ai.jpg",
     metrics: { accuracy: 0.88, efficiency: 0.83, innovation: 0.87 }
   },
   {
@@ -151,8 +151,8 @@ const projectsData = [
     category: "Industrial AI",
     categoryColor: "#9932CC",
     demoUrl: "#",
-    repoUrl: "https://github.com/dhaneshraju/industrial-predictive-maintenance",
-    image: "/projects/maintenance.jpg",
+    // repoUrl: "https://github.com/dhaneshraju/industrial-predictive-maintenance",
+    // image: "/projects/maintenance.jpg",
     metrics: { accuracy: 0.9, explainability: 0.8, deployment: 0.85 }
   }
 ];
@@ -813,8 +813,8 @@ export default function AboutPage() {
     
     // List of files to download
     const files = [
-      { name: 'Dhanesh_Raju_CV.pdf', displayName: 'Dhanesh_Raju_CV.pdf' },
-      { name: 'Dhanesh_Raju_Personal_Statement.pdf', displayName: 'Dhanesh_Raju_Personal_Statement.pdf' } // Second file with same content for demo
+      { name: 'CV.pdf', displayName: 'Dhanesh_Raju_CV.pdf' },
+      { name: 'PS.pdf', displayName: 'Dhanesh_Raju_Personal_Statement.pdf' } // Second file with same content for demo
     ];
     
     // Helper function to trigger download

@@ -75,9 +75,7 @@ __tests__/
 # Large files
 documents/
 scripts/
-*.docx
-*.pdf
-*.rtf
+
 
 # Pinecone index scripts
 uploadeToPineconeSimple.js
