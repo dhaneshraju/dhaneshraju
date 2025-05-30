@@ -811,7 +811,6 @@ export default function AboutPage() {
     
     setIsDownloading(true);
     
-    // List of files to download
     const files = [
       { name: `${process.env.PUBLIC_URL || ''}/Dhanesh_Raju_CV.pdf`, displayName: 'Dhanesh_Raju_CV.pdf' },
       { name: `${process.env.PUBLIC_URL || ''}/Dhanesh_Raju_Personal_Statement.pdf`, displayName: 'Dhanesh_Raju_Personal_Statement.pdf' }
