@@ -11,8 +11,8 @@ import * as THREE from 'three';
 import { useNavigate } from 'react-router-dom';
 
 // Import PDF files
-import CV from '../assets/Dhanesh_Raju_CV.pdf';
-import PersonalStatement from '../assets/Dhanesh_Raju_Personal_Statement.pdf';
+import Dhanesh_Raju_CV from '../assets/Dhanesh_Raju_CV.pdf';
+import Dhanesh_Raju_Personal_Statement from '../assets/Dhanesh_Raju_Personal_Statement.pdf';
 // import emailjs from 'emailjs-com';
 
 
@@ -816,8 +816,8 @@ export default function AboutPage() {
     setIsDownloading(true);
     
     const files = [
-      { url: CV, name: 'Dhanesh_Raju_CV.pdf' },
-      { url: PersonalStatement, name: 'Dhanesh_Raju_Personal_Statement.pdf' }
+      { url: Dhanesh_Raju_CV, name: 'Dhanesh_Raju_CV.pdf' },
+      { url: Dhanesh_Raju_Personal_Statement, name: 'Dhanesh_Raju_Personal_Statement.pdf' }
     ];
     
     // Helper function to trigger download
