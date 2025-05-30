@@ -813,8 +813,8 @@ export default function AboutPage() {
     
     // List of files to download
     const files = [
-      { name: 'Dhanesh_Raju_CV.pdf', displayName: 'Dhanesh_Raju_CV.pdf' },
-      { name: 'Dhanesh_Raju_Personal_Statement.pdf', displayName: 'Dhanesh_Raju_Personal_Statement.pdf' } // Second file with same content for demo
+      { name: `${process.env.PUBLIC_URL || ''}/Dhanesh_Raju_CV.pdf`, displayName: 'Dhanesh_Raju_CV.pdf' },
+      { name: `${process.env.PUBLIC_URL || ''}/Dhanesh_Raju_Personal_Statement.pdf`, displayName: 'Dhanesh_Raju_Personal_Statement.pdf' }
     ];
     
     // Helper function to trigger download
