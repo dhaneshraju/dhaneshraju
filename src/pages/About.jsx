@@ -6,13 +6,9 @@ import { Github, Linkedin, Twitter, Mail, ExternalLink, Code, Book, Brain, Panel
 import { gsap } from 'gsap';
 import DynamicMusicPlayer from '../components/DynamicMusicPlayer';
 import './AboutPage.css';
-import defaultProfileImage from '../assets/dhanesh.jpg';
+import defaultProfileImage from '../assets/dhanesh.jpg'; // Update path to your default image
 import * as THREE from 'three';
 import { useNavigate } from 'react-router-dom';
-
-// Import PDF files
-import Dhanesh_Raju_CV from '../assets/Dhanesh_Raju_CV.pdf';
-import Dhanesh_Raju_Personal_Statement from '../assets/Dhanesh_Raju_Personal_Statement.pdf';
 // import emailjs from 'emailjs-com';
 
 
@@ -816,26 +812,33 @@ export default function AboutPage() {
     setIsDownloading(true);
     
     const files = [
-      { url: Dhanesh_Raju_CV, name: 'Dhanesh_Raju_CV.pdf' },
-      { url: Dhanesh_Raju_Personal_Statement, name: 'Dhanesh_Raju_Personal_Statement.pdf' }
+      { name: 'Dhanesh_Raju_CV.pdf', displayName: 'Dhanesh_Raju_CV.pdf' },
+      { name: 'Dhanesh_Raju_Personal_Statement.pdf', displayName: 'Dhanesh_Raju_Personal_Statement.pdf' }
     ];
     
     // Helper function to trigger download
     const downloadFile = (file) => {
-      return new Promise((resolve) => {
+      return new Promise((resolve, reject) => {
+        // Use the public URL in production, or relative path in development
+        const fileUrl = process.env.NODE_ENV === 'production' 
+          ? `${window.location.origin}/${file.name}`
+          : `/${file.name}`;
+        
         const link = document.createElement('a');
-        link.href = file.url;
-        link.download = file.name;
+        link.href = fileUrl;
+        link.download = file.displayName;
+        link.target = '_blank';
+        link.rel = 'noopener noreferrer';
         
         // Add to body, click and remove
         document.body.appendChild(link);
         link.click();
         document.body.removeChild(link);
         
-        // Small delay between downloads
+        // Small delay to ensure the download starts
         setTimeout(() => {
           resolve();
-        }, 300);
+        }, 100);
       });
     };
     
