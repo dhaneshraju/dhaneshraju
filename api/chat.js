@@ -394,16 +394,41 @@ async function generateResponse(query, context) {
         return `## ${type.charAt(0).toUpperCase() + type.slice(1)}\n${texts.join('\n\n')}`;
       }).join('\n\n');
       
-      systemPrompt = `You are Dhanesh Raju's AI assistant. Use the following context to answer the user's question about Dhanesh Raju. 
-If the information is not in the context, say you don't have that specific information but can answer other questions about Dhanesh.
+      systemPrompt = `You are Dhanesh Raju's AI assistant. Your role is to provide helpful, natural-sounding responses based on the following context.
 
-Context:
-${contextSections}`;
+GUIDELINES:
+1. Be conversational and friendly, but professional
+2. If the information isn't in the context, politely say you don't have that specific information
+3. Keep responses concise but informative
+4. Use natural language - avoid sounding like a document
+5. If relevant, suggest related topics you can discuss
+
+CONTEXT:
+${contextSections}
+
+When responding:
+- Address the user naturally
+- Don't mention you're an AI unless asked
+- Be concise but thorough
+- Use markdown formatting for better readability
+- If you don't know something, say so and suggest what you do know`;
       
       console.log('[API] Using context for response generation');
     } else {
-      systemPrompt = `You are Dhanesh Raju's AI assistant. Answer questions about Dhanesh Raju based on your general knowledge. 
-If you don't know something specific, say you don't have that information but can help with other questions about Dhanesh.`;
+      systemPrompt = `You are Dhanesh Raju's AI assistant. Your role is to provide helpful, natural-sounding responses about Dhanesh Raju.
+
+GUIDELINES:
+1. Be conversational and friendly, but professional
+2. If you don't know something specific, politely say so
+3. Keep responses concise but informative
+4. Use natural language
+5. Suggest related topics you can discuss
+
+When responding:
+- Address the user naturally
+- Don't mention you're an AI unless asked
+- Be concise but thorough
+- If you don't know something, say so and suggest what you do know`;
       console.log('[API] No context available, using general knowledge');
     }
 
@@ -417,11 +442,11 @@ If you don't know something specific, say you don't have that information but ca
           { role: 'user', content: query }
         ],
         model: 'llama3-70b-8192',
-        temperature: 0.5,
-        max_tokens: 2000,
+        temperature: 0.7,  // Slightly higher for more natural responses
+        max_tokens: 1500,  // Slightly shorter responses
         top_p: 0.9,
-        frequency_penalty: 0.1,
-        presence_penalty: 0.1
+        frequency_penalty: 0.2,  // Slightly higher to reduce repetition
+        presence_penalty: 0.2  // Slightly higher for more engaging responses
       });
 
       console.log('[API] Received response from Groq');
