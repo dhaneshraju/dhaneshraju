@@ -13,7 +13,7 @@ import { useNavigate } from 'react-router-dom';
 
 
 // AI Engineer Profile Image URL
-const profileImage = '/profile-image.jpg' || defaultProfileImage;
+const profileImage = defaultProfileImage;
  // Place your image in public folder
 // Add this before the AboutPage component
 
@@ -104,7 +104,7 @@ const projectsData = [
     categoryColor: "#00FFFF",
     demoUrl: "#",
     repoUrl: "https://github.com/dhaneshraju/turtlebot3-control", // Update if private
-    image: "/projects/turtlebot.jpg",
+    // image: "/projects/turtlebot.jpg",
     metrics: { stability: 0.9, adaptability: 0.88, innovation: 0.92 }
   },
   {
@@ -116,7 +116,7 @@ const projectsData = [
     categoryColor: "#ADFF2F",
     demoUrl: "#",
     repoUrl: "https://github.com/dhaneshraju/abuse-detector",
-    image: "/projects/abuse-nlp.jpg",
+    // image: "/projects/abuse-nlp.jpg",
     metrics: { accuracy: 0.87, recall: 0.82, ethics: 0.95 }
   },
   {
@@ -128,7 +128,7 @@ const projectsData = [
     categoryColor: "#FF4500",
     demoUrl: "#",
     repoUrl: "https://github.com/dhaneshraju/med-ai-diagnostics",
-    image: "/projects/medical-ai.jpg",
+    // image: "/projects/medical-ai.jpg",
     metrics: { accuracy: 0.91, interpretability: 0.86, impact: 0.9 }
   },
   {
@@ -140,7 +140,7 @@ const projectsData = [
     categoryColor: "#1E90FF",
     demoUrl: "#",
     repoUrl: "https://github.com/dhaneshraju/sleep-stage-classifier",
-    image: "/projects/sleep-ai.jpg",
+    // image: "/projects/sleep-ai.jpg",
     metrics: { accuracy: 0.88, efficiency: 0.83, innovation: 0.87 }
   },
   {
@@ -152,7 +152,7 @@ const projectsData = [
     categoryColor: "#9932CC",
     demoUrl: "#",
     repoUrl: "https://github.com/dhaneshraju/industrial-predictive-maintenance",
-    image: "/projects/maintenance.jpg",
+    // image: "/projects/maintenance.jpg",
     metrics: { accuracy: 0.9, explainability: 0.8, deployment: 0.85 }
   }
 ];
@@ -819,36 +819,26 @@ export default function AboutPage() {
     // Helper function to trigger download
     const downloadFile = (file) => {
       return new Promise((resolve, reject) => {
-        try {
-          // First, fetch the file to ensure it exists and is accessible
-          fetch(process.env.PUBLIC_URL + '/' + file.name)
-            .then(response => {
-              if (!response.ok) {
-                throw new Error(`HTTP error! status: ${response.status}`);
-              }
-              return response.blob();
-            })
-            .then(blob => {
-              const url = window.URL.createObjectURL(blob);
-              const link = document.createElement('a');
-              link.href = url;
-              link.setAttribute('download', file.displayName);
-              document.body.appendChild(link);
-              link.click();
-              
-              // Clean up
-              window.URL.revokeObjectURL(url);
-              document.body.removeChild(link);
-              resolve();
-            })
-            .catch(error => {
-              console.error('Error downloading file:', error);
-              reject(error);
-            });
-        } catch (error) {
-          console.error('Error in download process:', error);
-          reject(error);
-        }
+        // Use the public URL in production, or relative path in development
+        const fileUrl = process.env.NODE_ENV === 'production' 
+          ? `${window.location.origin}/${file.name}`
+          : `/${file.name}`;
+        
+        const link = document.createElement('a');
+        link.href = fileUrl;
+        link.download = file.displayName;
+        link.target = '_blank';
+        link.rel = 'noopener noreferrer';
+        
+        // Add to body, click and remove
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        
+        // Small delay to ensure the download starts
+        setTimeout(() => {
+          resolve();
+        }, 100);
       });
     };
     
