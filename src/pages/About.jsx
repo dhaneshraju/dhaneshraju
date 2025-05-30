@@ -6,9 +6,13 @@ import { Github, Linkedin, Twitter, Mail, ExternalLink, Code, Book, Brain, Panel
 import { gsap } from 'gsap';
 import DynamicMusicPlayer from '../components/DynamicMusicPlayer';
 import './AboutPage.css';
-import defaultProfileImage from '../assets/dhanesh.jpg'; // Update path to your default image
+import defaultProfileImage from '../assets/dhanesh.jpg';
 import * as THREE from 'three';
 import { useNavigate } from 'react-router-dom';
+
+// Import PDF files
+import CV from '../assets/Dhanesh_Raju_CV.pdf';
+import PersonalStatement from '../assets/Dhanesh_Raju_Personal_Statement.pdf';
 // import emailjs from 'emailjs-com';
 
 
@@ -812,33 +816,26 @@ export default function AboutPage() {
     setIsDownloading(true);
     
     const files = [
-      { name: 'Dhanesh_Raju_CV.pdf', displayName: 'Dhanesh_Raju_CV.pdf' },
-      { name: 'Dhanesh_Raju_Personal_Statement.pdf', displayName: 'Dhanesh_Raju_Personal_Statement.pdf' }
+      { url: CV, name: 'Dhanesh_Raju_CV.pdf' },
+      { url: PersonalStatement, name: 'Dhanesh_Raju_Personal_Statement.pdf' }
     ];
     
     // Helper function to trigger download
     const downloadFile = (file) => {
-      return new Promise((resolve, reject) => {
-        // Use the public URL in production, or relative path in development
-        const fileUrl = process.env.NODE_ENV === 'production' 
-          ? `${window.location.origin}/${file.name}`
-          : `/${file.name}`;
-        
+      return new Promise((resolve) => {
         const link = document.createElement('a');
-        link.href = fileUrl;
-        link.download = file.displayName;
-        link.target = '_blank';
-        link.rel = 'noopener noreferrer';
+        link.href = file.url;
+        link.download = file.name;
         
         // Add to body, click and remove
         document.body.appendChild(link);
         link.click();
         document.body.removeChild(link);
         
-        // Small delay to ensure the download starts
+        // Small delay between downloads
         setTimeout(() => {
           resolve();
-        }, 100);
+        }, 300);
       });
     };
     
