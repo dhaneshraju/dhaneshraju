@@ -108,16 +108,16 @@ canvas {
 
 
 :root {
-  font-size: 14px; /* or 62.5% for 10px base for easier rem calculations */
+  font-size: 16px; /* or 62.5% for 10px base for easier rem calculations */
 }
-/*test*/
+
 
 html {
-  font-size: 14px;
+  font-size: 16px;
 }
 
 @media (min-width: 640px) {
   html {
-    font-size: calc(14px + 0.2vw);
+    font-size: calc(16px + 0.2vw);
   }
 }

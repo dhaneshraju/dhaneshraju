@@ -76,6 +76,7 @@ __tests__/
 documents/
 scripts/
 *.docx
+*.pdf
 *.rtf
 
 # Pinecone index scripts
