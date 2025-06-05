@@ -814,21 +814,27 @@ export default function AboutPage() {
     // List of files to download
     const files = [
       { name: 'CV.pdf', displayName: 'Dhanesh_Raju_CV.pdf' },
-      { name: 'PS.pdf', displayName: 'Dhanesh_Raju_Personal_Statement.pdf' } // Second file with same content for demo
+      { name: 'PS.pdf', displayName: 'Dhanesh_Raju_Personal_Statement.pdf' }
     ];
     
-    // Helper function to trigger download
-    const downloadFile = (file) => {
-      return new Promise((resolve) => {
-        const link = document.createElement('a');
-        link.href = `/${file.name}`;
-        link.download = file.displayName;
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
-        resolve();
-      });
-    };
+    function DownloadLinks() {
+      return (
+        <div>
+          {files.map(file => (
+            <a
+              key={file.name}
+              href={`/${file.displayName}`}
+              download
+              target="_blank"
+              rel="noopener noreferrer"
+              style={{ marginRight: '1rem', color: 'blue', textDecoration: 'underline' }}
+            >
+              Download {file.name}
+            </a>
+          ))}
+        </div>
+      );
+    }
     
     try {
       // Download files one by one with a small delay
@@ -925,7 +931,7 @@ useEffect(() => {
     <div className="main-container bg-black text-white">
     {/* Return to Core Button - Fixed in top right */}
     <button
-      onClick={() => navigate('/')}
+      onClick={() => navigate('/app')}
       className="fixed top-[clamp(1rem,2vh,2rem)] right-[clamp(1rem,3vw,3rem)] z-50 px-[clamp(0.5rem,2vw,1.5rem)] py-[clamp(0.25rem,1.5vh,1rem)] text-[clamp(0.875rem,1.5vw,1rem)] text-cyan-400 font-mono font-bold bg-transparent rounded-full hover:bg-cyan-300 shadow-md transition duration-300 hover:scale-105"
     >
       ⬅️ Return to Core
